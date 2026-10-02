@@ -53,7 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.components.GlassScreenScaffold
 import com.chethan616.clearpdf.ui.components.GlassSearchHeader
 import com.chethan616.clearpdf.ui.components.GlassSectionLabel

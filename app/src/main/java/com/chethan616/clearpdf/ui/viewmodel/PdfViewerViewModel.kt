@@ -14,7 +14,7 @@ import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.data.repository.GitHubStarPromptManager
 import com.chethan616.clearpdf.data.repository.LocalDocumentMirror
 import com.chethan616.clearpdf.data.repository.PdfServiceLocator

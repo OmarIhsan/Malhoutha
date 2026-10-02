@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 import com.chethan616.clearpdf.ui.DocsApp
 
-class MainActivity : ComponentActivity() {
+open class MainActivity : ComponentActivity() {
 
     override fun attachBaseContext(newBase: android.content.Context) {
         val savedLang = com.chethan616.clearpdf.data.repository.OnboardingManager.getSelectedLocale(newBase)

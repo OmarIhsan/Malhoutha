@@ -91,7 +91,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.components.GlassMotion
 import com.chethan616.clearpdf.ui.components.viewerGlass
 import com.chethan616.clearpdf.ui.theme.LiquidGlassColors

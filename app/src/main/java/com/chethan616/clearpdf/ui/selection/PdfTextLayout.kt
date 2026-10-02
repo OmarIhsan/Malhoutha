@@ -96,48 +96,107 @@ class PdfTextLayout(blocks: List<OcrTextBlock>) {
         else b.left + (b.right - b.left) * (c + 1) / b.text.length.coerceAtLeast(1)) * size.width
 
     /**
-     * Highlight rectangles (one per block fragment) for flat [start, end), expanded vertically so
-     * ascenders and descenders sit inside the band like a platform text selection.
+     * Highlight rectangles (one per block fragment or merged line strip) for flat [start, end),
+     * expanded with typographic padding and line-height breathing room:
+     * - Horizontal inflation: expand left by -2.5dp and right by +3.5dp
+     * - Vertical line-height expansion: expand top by -1.5dp and bottom by +1.5dp
+     * - Adjacent quads on the same line merge seamlessly into a single unbroken highlight strip.
      */
-    fun selectionRects(start: Int, end: Int, size: Size): List<Rect> {
+    fun selectionRects(
+        start: Int,
+        end: Int,
+        size: Size,
+        density: Float = runCatching { android.content.res.Resources.getSystem().displayMetrics.density }.getOrDefault(2.5f)
+    ): List<Rect> {
         if (blocks.isEmpty() || end <= start) return emptyList()
         val out = ArrayList<Rect>()
         val first = blockIndexOf(start)
         val last = blockIndexOf((end - 1).coerceAtLeast(0))
+
+        val padLeftPx = PAD_LEFT_DP * density
+        val padRightPx = PAD_RIGHT_DP * density
+        val padTopPx = PAD_TOP_DP * density
+        val padBottomPx = PAD_BOTTOM_DP * density
+
         for (i in first..last) {
             val b = blocks[i]
             val s = (start - starts[i]).coerceIn(0, b.text.length)
             val e = (end - starts[i]).coerceIn(0, b.text.length)
             if (e <= s) continue
             val r = blockRect(i, size)
-            out.add(expandLine(Rect(charLeft(b, s, size), r.top, charRight(b, e - 1, size), r.bottom)))
+            val baseLine = expandLine(r)
+            val left = (charLeft(b, s, size) - padLeftPx).coerceAtLeast(0f)
+            val right = (charRight(b, e - 1, size) + padRightPx).coerceAtMost(size.width)
+            val top = (baseLine.top - padTopPx).coerceAtLeast(0f)
+            val bottom = (baseLine.bottom + padBottomPx).coerceAtMost(size.height)
+            out.add(Rect(left, top, right, bottom))
         }
-        return out
+        return mergeAdjacentQuads(out, density)
+    }
+
+    private fun mergeAdjacentQuads(rects: List<Rect>, density: Float): List<Rect> {
+        if (rects.size <= 1) return rects
+        val sorted = rects.sortedWith(compareBy({ it.top }, { it.left }))
+        val merged = ArrayList<Rect>()
+        var current = sorted[0]
+        val horizontalGapTolerance = (PAD_LEFT_DP + PAD_RIGHT_DP + 3.0f) * density
+        for (i in 1 until sorted.size) {
+            val next = sorted[i]
+            val vOverlap = min(current.bottom, next.bottom) - max(current.top, next.top)
+            val minH = min(current.height, next.height).coerceAtLeast(1f)
+            val sameLine = vOverlap > minH * 0.45f || abs(current.top - next.top) < 4f * density
+            if (sameLine && next.left <= current.right + horizontalGapTolerance) {
+                current = Rect(
+                    left = min(current.left, next.left),
+                    top = min(current.top, next.top),
+                    right = max(current.right, next.right),
+                    bottom = max(current.bottom, next.bottom)
+                )
+            } else {
+                merged.add(current)
+                current = next
+            }
+        }
+        merged.add(current)
+        return merged
     }
 
     /**
      * Where a selection handle attaches for caret [o]. The START handle sits at the left edge of the
      * character at [o]; the END handle at the right edge of the character before [o] — so a caret
      * sitting on a line break attaches to the line the user sees it on.
+     * Aligned with expanded quad metrics.
      */
-    fun caretGeometry(o: Int, isStart: Boolean, size: Size): CaretGeometry? {
+    fun caretGeometry(
+        o: Int,
+        isStart: Boolean,
+        size: Size,
+        density: Float = runCatching { android.content.res.Resources.getSystem().displayMetrics.density }.getOrDefault(2.5f)
+    ): CaretGeometry? {
         if (blocks.isEmpty()) return null
         val oc = o.coerceIn(0, length)
         val bi: Int
         val x: Float
+        val padLeftPx = PAD_LEFT_DP * density
+        val padRightPx = PAD_RIGHT_DP * density
+        val padTopPx = PAD_TOP_DP * density
+        val padBottomPx = PAD_BOTTOM_DP * density
+
         if (isStart) {
             var i = blockIndexOf(oc)
             var c = oc - starts[i]
             if (c >= blocks[i].text.length && i + 1 < blocks.size) { i++; c = 0 }
             c = c.coerceIn(0, blocks[i].text.length - 1)
-            bi = i; x = charLeft(blocks[i], c, size)
+            bi = i; x = (charLeft(blocks[i], c, size) - padLeftPx).coerceAtLeast(0f)
         } else {
             val i = blockIndexOf((oc - 1).coerceAtLeast(0))
             val c = (oc - starts[i] - 1).coerceIn(0, blocks[i].text.length - 1)
-            bi = i; x = charRight(blocks[i], c, size)
+            bi = i; x = (charRight(blocks[i], c, size) + padRightPx).coerceAtMost(size.width)
         }
         val line = expandLine(blockRect(bi, size))
-        return CaretGeometry(x, line.top, line.bottom, bi)
+        val lineTop = (line.top - padTopPx).coerceAtLeast(0f)
+        val lineBottom = (line.bottom + padBottomPx).coerceAtMost(size.height)
+        return CaretGeometry(x, lineTop, lineBottom, bi)
     }
 
     // ── Hit testing ───────────────────────────────────────────────────────────────────────────
@@ -230,11 +289,39 @@ class PdfTextLayout(blocks: List<OcrTextBlock>) {
         return oc until oc + 1
     }
 
+    /**
+     * Smart word snapping around character offset [o]: [start, end).
+     * Snaps to the full boundary of the target word, stripping trailing punctuation
+     * (',', '.', ';', ':', '!', '?') and trailing whitespace so the initial selection
+     * range cleanly isolates the word.
+     */
+    fun smartWordAt(o: Int): IntRange {
+        if (length == 0) return 0 until 0
+        val raw = wordAt(o)
+        if (raw.isEmpty()) return raw
+        var s = raw.first
+        var e = raw.last + 1
+        val trailingPunctuation = setOf(',', '.', ';', ':', '!', '?', '…', '،', '؛', '؟')
+        while (e > s && (text[e - 1].isWhitespace() || text[e - 1] in trailingPunctuation)) {
+            e--
+        }
+        while (s < e && text[s].isWhitespace()) {
+            s++
+        }
+        return if (e > s) s until e else raw
+    }
+
     data class CaretGeometry(val x: Float, val lineTop: Float, val lineBottom: Float, val blockIndex: Int) {
         val lineHeight: Float get() = lineBottom - lineTop
     }
 
     companion object {
+        const val PAD_LEFT_DP = 2.5f
+        const val PAD_RIGHT_DP = 3.5f
+        const val PAD_TOP_DP = 1.5f
+        const val PAD_BOTTOM_DP = 1.5f
+        const val HANDLE_CLEARANCE_DP = 2.5f
+
         /**
          * PdfBox reports each glyph box from roughly cap height down to the BASELINE, so a raw block
          * rect clips descenders and accents. Pad it to a full typographic line, the band TextView

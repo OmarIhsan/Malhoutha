@@ -51,7 +51,9 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.FileOpen
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Image
@@ -98,7 +100,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.data.repository.RecentFilesManager
 import com.chethan616.clearpdf.ui.components.CloseCrossIcon
 import com.chethan616.clearpdf.ui.components.GlassCapsuleMenu
@@ -132,6 +134,7 @@ fun HomeScreen(
     backdrop: LayerBackdrop,
     onNavigateToOpenPdf: () -> Unit,
     onNavigateToScan: () -> Unit,
+    onStartNote: (() -> Unit)? = null,
     // The stored display name travels with the uri. Re-querying DISPLAY_NAME at tap time is a
     // guess that fails exactly when it matters: a lapsed permission or a provider that answers with
     // its own internal name sends a .docx down the plain-PDF route. Recents already knows what the
@@ -221,7 +224,7 @@ fun HomeScreen(
                 // Pinned above the list: the header samples the content layer, so cards scroll
                 // *under* it and its glass refracts them instead of only the wallpaper.
                 GlassSearchHeader(
-                    title = "ClearPDF",
+                    title = "Malhoutha",
                     backdrop = headerBackdrop,
                     uiSensor = uiSensor,
                     query = recentQuery,
@@ -256,7 +259,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .then(entrance.entranceModifier(1, density))
                             .liquidGlassPanel(backdrop, uiSensor)
-                            .padding(horizontal = 20.dp, vertical = 18.dp),
+                            .padding(horizontal = 20.dp, vertical = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
@@ -264,25 +267,23 @@ fun HomeScreen(
                             tint = accent, modifier = Modifier.size(36.dp)
                         )
                         Spacer(Modifier.height(10.dp))
-                        // The ON-DEVICE badge moved here from the header — the header is now the
-                        // viewer's compact pill, which has no room for an action chip.
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(50))
                                 .background(accent.copy(alpha = if (isLight) 0.12f else 0.18f))
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             BasicText(
-                                stringResource(R.string.home_on_device),
-                                style = TextStyle(accent, 10.sp, FontWeight.Bold)
+                                "v1.0 Baseline · Substrate",
+                                style = TextStyle(accent, 11.sp, FontWeight.Bold)
                             )
                         }
                         Spacer(Modifier.height(10.dp))
                         BasicText(
-                            stringResource(R.string.home_tagline),
+                            "Malhoutha",
                             style = TextStyle(
                                 color = text,
-                                fontSize = 20.sp,
+                                fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = SourGummyFontFamily,
                                 textAlign = TextAlign.Center
@@ -290,10 +291,10 @@ fun HomeScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         BasicText(
-                            stringResource(R.string.home_subtitle),
+                            "Universal Document Substrate & Spatial Canvas",
                             style = TextStyle(sub, 14.sp, textAlign = TextAlign.Center)
                         )
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(20.dp))
 
                         Row(
                             Modifier.fillMaxWidth(),
@@ -307,24 +308,41 @@ fun HomeScreen(
                             ) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Rounded.FileOpen, null, Modifier.size(18.dp), Color.White)
-                                    BasicText(stringResource(R.string.home_open_pdf), style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                    Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp), Color.White)
+                                    BasicText("Open File", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                }
+                            }
+                            LiquidButton(
+                                onClick = { onStartNote?.invoke() },
+                                backdrop = backdrop,
+                                tint = LiquidGlassColors.Teal,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Rounded.EditNote, null, Modifier.size(18.dp), Color.White)
+                                    BasicText("Start Note", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
                                 }
                             }
                             LiquidButton(
                                 onClick = onNavigateToScan,
                                 backdrop = backdrop,
                                 tint = LiquidGlassColors.Green,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(0.8f)
                             ) {
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Rounded.Scanner, null, Modifier.size(18.dp), Color.White)
-                                    BasicText(stringResource(R.string.home_scan), style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                    Icon(Icons.Rounded.Scanner, null, Modifier.size(16.dp), Color.White)
+                                    BasicText(stringResource(R.string.home_scan), style = TextStyle(Color.White, 13.sp, FontWeight.SemiBold))
                                 }
                             }
                         }

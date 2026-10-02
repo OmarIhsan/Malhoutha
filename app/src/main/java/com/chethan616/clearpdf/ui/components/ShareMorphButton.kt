@@ -46,7 +46,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.shapes.Capsule
 

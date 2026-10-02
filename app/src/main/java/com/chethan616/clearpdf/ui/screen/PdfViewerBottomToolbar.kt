@@ -60,6 +60,11 @@ import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.AutoFixNormal
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.MenuBook
+import com.kyant.shapes.Capsule
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -80,7 +85,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.theme.LiquidGlassColors
 import com.chethan616.clearpdf.ui.components.CloseCrossIcon
 import com.chethan616.clearpdf.ui.components.GlassMotion
@@ -688,46 +693,177 @@ internal fun PdfViewerBottomToolbar(
         // + a compact circular "Open another PDF" button. Hidden while a sub-tool is
         // active so that focused mode shows ONLY the sub-toolbar (one panel).
         AnimatedVisibility(
-            // Same `selectorGate` as the tool chips above, so the blue "Editor Tools" pill fades out
-            // in lockstep with them — "both pills at the same time" — before the sub-toolbar arrives.
+            // Same `selectorGate` as the tool chips above, so the bar fades out in lockstep
+            // if a modal tool (like find bar or signature pad) takes over.
             visible = selectorGate && !showFindBar && !showSignaturePad,
             enter   = fadeIn(tween(180)),
             exit    = fadeOut(tween(FaceHandoffMillis))
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                // Bottom-align so the "Editor Tools" pill stays pinned to the toolbar's base while
-                // the share capsule (whose real layout height grows) extends UPWARD only — the
-                // toolbar column is bottom-anchored on screen, so added height goes up.
-                verticalAlignment = Alignment.Bottom
+            ViewerGlassOverflowSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
+                backdrop = backdrop,
+                color = glass
             ) {
-                LiquidButton(
-                    onClick = {
-                        editorOpen = !editorOpen
-                        if (!editorOpen) onSetActiveTool(PdfEditTool.None)
-                    },
-                    backdrop = backdrop,
-                    tint = if (editorOpen) accent else Color.Unspecified,
-                    surfaceColor = if (editorOpen) Color.Unspecified else pillGlass,
-                    modifier = Modifier.weight(1f)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                    val readActive = activeTool == PdfEditTool.None && !drawingToolActive
+                    val penActive = drawingToolActive && activeTool == PdfEditTool.Draw
+                    val hlActive = activeTool == PdfEditTool.Highlight
+                    val eraserActive = activeTool == PdfEditTool.Eraser
+
+                    // 1. Read Mode
+                    LiquidButton(
+                        onClick = {
+                            onSetActiveTool(PdfEditTool.None)
+                            editorOpen = false
+                        },
+                        backdrop = backdrop,
+                        tint = if (readActive) accent else Color.Unspecified,
+                        surfaceColor = if (readActive) accent.copy(alpha = 0.95f) else chip
                     ) {
-                        Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp), if (editorOpen) Color.White else fg)
-                        BasicText(
-                            stringResource(R.string.viewer_editor_tools),
-                            style = TextStyle(if (editorOpen) Color.White else fg, 14.sp, FontWeight.SemiBold),
-                            maxLines = 1
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.MenuBook,
+                                contentDescription = "Read Mode",
+                                modifier = Modifier.size(16.dp),
+                                tint = if (readActive) Color.White else fg
+                            )
+                            BasicText(
+                                "Read",
+                                style = TextStyle(if (readActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
+                            )
+                        }
+                    }
+
+                    // 2. Pen
+                    LiquidButton(
+                        onClick = {
+                            onSetActiveTool(if (penActive) PdfEditTool.None else PdfEditTool.Draw)
+                        },
+                        backdrop = backdrop,
+                        tint = if (penActive) currentColor else Color.Unspecified,
+                        surfaceColor = if (penActive) currentColor.copy(alpha = 0.95f) else chip
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Edit,
+                                contentDescription = "Pen",
+                                modifier = Modifier.size(16.dp),
+                                tint = if (penActive) Color.White else fg
+                            )
+                            BasicText(
+                                "Pen",
+                                style = TextStyle(if (penActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
+                            )
+                        }
+                    }
+
+                    // 3. Highlighter
+                    LiquidButton(
+                        onClick = {
+                            onSetActiveTool(if (hlActive) PdfEditTool.None else PdfEditTool.Highlight)
+                        },
+                        backdrop = backdrop,
+                        tint = if (hlActive) Color(0xFFF9A825) else Color.Unspecified,
+                        surfaceColor = if (hlActive) Color(0xFFF9A825).copy(alpha = 0.95f) else chip
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Brush,
+                                contentDescription = "Highlighter",
+                                modifier = Modifier.size(16.dp),
+                                tint = if (hlActive) Color.White else fg
+                            )
+                            BasicText(
+                                "Highlighter",
+                                style = TextStyle(if (hlActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
+                            )
+                        }
+                    }
+
+                    // 4. Eraser
+                    LiquidButton(
+                        onClick = {
+                            onSetActiveTool(if (eraserActive) PdfEditTool.None else PdfEditTool.Eraser)
+                        },
+                        backdrop = backdrop,
+                        tint = if (eraserActive) Color(0xFFC62828) else Color.Unspecified,
+                        surfaceColor = if (eraserActive) Color(0xFFC62828).copy(alpha = 0.95f) else chip
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = "Eraser",
+                                modifier = Modifier.size(16.dp),
+                                tint = if (eraserActive) Color.White else fg
+                            )
+                            BasicText(
+                                "Eraser",
+                                style = TextStyle(if (eraserActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
+                            )
+                        }
+                    }
+
+                    // Divider
+                    Box(Modifier.width(1.dp).height(22.dp).background(fg.copy(0.14f)))
+
+                    // 5. Undo
+                    LiquidIconButton(
+                        onClick = onUndo,
+                        backdrop = backdrop,
+                        surfaceColor = chip,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Undo,
+                            contentDescription = stringResource(R.string.viewer_undo),
+                            modifier = Modifier.size(17.dp),
+                            tint = fg.copy(if (canUndo) 1f else 0.35f)
                         )
                     }
+
+                    // 6. More Tools
+                    LiquidIconButton(
+                        onClick = { editorOpen = !editorOpen },
+                        backdrop = backdrop,
+                        tint = if (editorOpen) accent else Color.Unspecified,
+                        surfaceColor = if (editorOpen) accent.copy(alpha = 0.9f) else chip,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Apps,
+                            contentDescription = "More Tools",
+                            modifier = Modifier.size(17.dp),
+                            tint = if (editorOpen) Color.White else fg
+                        )
+                    }
+
+                    // Reserve slot for the share capsule overlay
+                    Spacer(Modifier.size(46.dp))
                 }
-                // Reserve the circle's slot at the home-bar level so the pill never sits under the
-                // share button. (The tool panels above cover full width and only FADE on morph.)
-                Spacer(Modifier.size(52.dp))
             }
         }
         }

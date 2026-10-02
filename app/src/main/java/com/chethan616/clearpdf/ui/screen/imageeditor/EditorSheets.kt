@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.imageeditor.engine.ExportFormat
 import com.chethan616.clearpdf.imageeditor.engine.MetadataMode
 import com.chethan616.clearpdf.imageeditor.engine.WatermarkPosition

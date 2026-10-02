@@ -124,7 +124,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.components.GlassBottomSheet
 import com.chethan616.clearpdf.ui.components.GlassColorPicker
 import com.chethan616.clearpdf.ui.components.UnsavedChangesDialog

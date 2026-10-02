@@ -73,7 +73,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.selection.PdfTextSelectionState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -205,7 +205,7 @@ internal fun PdfContinuousPage(
             // Text selection highlight — the platform selection colour, one band per line fragment.
             // Drawn inside the zoom layer so it scales with the page, exactly like the glyphs.
             textSelection.pageRange(page)?.let { (from, to) ->
-                textSelection.layout(page)?.selectionRects(from, to, size)?.forEach { r ->
+                textSelection.layout(page)?.selectionRects(from, to, size, density)?.forEach { r ->
                     drawRect(selectionColors.backgroundColor, r.topLeft, r.size)
                 }
             }

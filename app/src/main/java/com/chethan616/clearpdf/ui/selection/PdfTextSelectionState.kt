@@ -259,7 +259,8 @@ class PdfTextSelectionState {
     private var pressWord: IntRange = IntRange.EMPTY
 
     /**
-     * Long-press: select the word under [p]. Returns false (and changes nothing) when the press is
+     * Long-press: select the word under [p] with smart word snapping (stripping trailing
+     * punctuation and whitespace). Returns false (and changes nothing) when the press is
      * not on text.
      */
     fun selectWordAt(p: Offset, slopPx: Float): Boolean {
@@ -270,7 +271,7 @@ class PdfTextSelectionState {
         val local = transform.screenToPage(p, origin)
         if (local.y < -slopPx || local.y > size.height + slopPx) return false
         val c = l.charAt(local, size, slopPx / transform.scale.coerceAtLeast(0.01f)) ?: return false
-        val w = l.wordAt(c)
+        val w = l.smartWordAt(c)
         if (w.isEmpty()) return false
         pressWordPage = page
         pressWord = w

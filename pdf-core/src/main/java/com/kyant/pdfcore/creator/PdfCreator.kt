@@ -140,9 +140,9 @@ class PdfCreatorImpl : PdfCreator {
             val sl = android.text.StaticLayout.Builder.obtain(line, 0, line.length, textPaint, usableWidth).build()
             if (yPos + sl.height > pageHeight - margin) startNewPage()
             canvas!!.save()
-            canvas!!.translate(margin, yPos)
-            sl.draw(canvas!!)
-            canvas!!.restore()
+            canvas.translate(margin, yPos)
+            sl.draw(canvas)
+            canvas.restore()
             yPos += sl.height + 4f
         }
         currentPage?.let { doc.finishPage(it) }

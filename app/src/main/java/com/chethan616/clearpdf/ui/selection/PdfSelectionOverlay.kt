@@ -40,7 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
@@ -241,6 +241,7 @@ fun PdfSelectionHandles(
         }
     }
 
+    val clearancePx = with(density) { 2.5.dp.toPx() }
     val minTouchPx = with(density) { 44.dp.toPx() }
     // Derived so a drag (which changes anchor/focus every frame) doesn't recompose this overlay.
     val hasSelection by remember(state) { derivedStateOf { state.hasSelection } }
@@ -269,7 +270,7 @@ fun PdfSelectionHandles(
                 val d = if (h == SelectionHandle.Start) drawables.first else drawables.second
                 val sz = if (h == SelectionHandle.Start) leftSize else rightSize
                 val left = caret.x - hotspotX(h, sz)
-                val top = caret.lineBottom
+                val top = caret.lineBottom + clearancePx
                 translate(left, top) {
                     if (d != null) drawIntoCanvas { c ->
                         d.setBounds(0, 0, sz.width.roundToInt(), sz.height.roundToInt())
@@ -293,7 +294,7 @@ fun PdfSelectionHandles(
                         if (caret == null) IntOffset(-100_000, -100_000)
                         else IntOffset(
                             (caret.x - latestHotspot - (touchW - sz.width) / 2f).roundToInt(),
-                            (caret.lineBottom - minTouchPx * 0.15f).roundToInt()
+                            (caret.lineBottom + clearancePx - (touchH - sz.height) / 2f).roundToInt()
                         )
                     }
                     .size(with(density) { touchW.toDp() }, with(density) { touchH.toDp() })
@@ -310,18 +311,18 @@ fun PdfSelectionHandles(
                             val caret = state.handleCaret(h) ?: return@awaitEachGesture
                             // Keep the finger's offset from the hotspot for the whole drag, so the
                             // handle never jumps to centre under the finger.
-                            val grab = Offset(caret.x, caret.lineBottom) - abs(down.position)
+                            val grab = Offset(caret.x, caret.lineBottom + clearancePx) - abs(down.position)
                             var lineH = caret.lineHeight
                             state.beginHandleDrag(h)
                             fun apply(fingerAbs: Offset) {
                                 val hs = fingerAbs + grab
-                                if (state.dragFocusTo(Offset(hs.x, hs.y - lineH / 2f))) {
+                                if (state.dragFocusTo(Offset(hs.x, hs.y - clearancePx - lineH / 2f))) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
                                 val f = state.focus ?: return
                                 val fc = state.caretOnScreen(f, f < (state.anchor ?: f))
                                 if (fc != null) lineH = fc.lineHeight
-                                state.magnifierCenter = Offset(hs.x, fc?.lineCenterY ?: (hs.y - lineH / 2f))
+                                state.magnifierCenter = Offset(hs.x, fc?.lineCenterY ?: (hs.y - clearancePx - lineH / 2f))
                             }
                             try {
                                 while (true) {

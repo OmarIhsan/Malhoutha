@@ -30,12 +30,12 @@ val hasReleaseSigning = !releaseStoreFilePath.isNullOrBlank() &&
     !releaseKeyPassword.isNullOrBlank()
 
 android {
-    namespace = "com.chethan616.clearpdf"
+    namespace = "com.malhoutha"
     compileSdk = 36
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
-        applicationId = "com.chethan616.clearpdf"
+        applicationId = "com.malhoutha"
         minSdk = 23
         targetSdk = 36
         versionCode = 4

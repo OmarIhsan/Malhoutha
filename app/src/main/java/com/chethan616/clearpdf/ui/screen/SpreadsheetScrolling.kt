@@ -46,7 +46,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.components.viewerGlass
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.shapes.Capsule

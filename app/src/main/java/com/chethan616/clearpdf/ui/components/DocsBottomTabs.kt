@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.chethan616.clearpdf.ui.theme.LiquidGlassColors
 import com.chethan616.clearpdf.ui.theme.LocalIsDarkMode
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.kyant.backdrop.Backdrop
 
 @Composable

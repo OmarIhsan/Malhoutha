@@ -56,7 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.office.OfficeEngine
 import com.chethan616.clearpdf.office.OfficeEngineManifest
 import com.chethan616.clearpdf.office.OfficeEngineState

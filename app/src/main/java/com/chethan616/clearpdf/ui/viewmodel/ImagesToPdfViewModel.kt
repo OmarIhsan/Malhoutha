@@ -13,7 +13,7 @@ import com.chethan616.clearpdf.data.repository.GitHubStarPromptManager
 import com.chethan616.clearpdf.data.repository.RecentFile
 import com.chethan616.clearpdf.data.repository.RecentFilesManager
 import com.chethan616.clearpdf.data.repository.SaveLocationManager
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 import com.chethan616.clearpdf.ui.utils.StarPromptEventBus
 import com.kyant.pdfcore.converter.PdfConverter
 import kotlinx.coroutines.Dispatchers

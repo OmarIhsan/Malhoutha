@@ -1,7 +1,7 @@
 package com.chethan616.clearpdf.ui.screen
 
 import androidx.compose.ui.res.stringResource
-import com.chethan616.clearpdf.R
+import com.malhoutha.R
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
