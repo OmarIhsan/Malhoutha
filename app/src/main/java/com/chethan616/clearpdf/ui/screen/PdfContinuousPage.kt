@@ -58,6 +58,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.chethan616.clearpdf.ui.paper.PaperConfig
+import com.chethan616.clearpdf.ui.paper.drawSyntheticPaper
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -128,7 +130,9 @@ internal fun PdfContinuousPage(
     onSelectMarkup: (Int) -> Unit = {},
     onDeleteMarkup: (Int) -> Unit = {},
     /** The viewer's text selection: this page draws its slice of the highlight and registers its coordinates. */
-    textSelection: PdfTextSelectionState
+    textSelection: PdfTextSelectionState,
+    /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain). Infinitely sharp at any zoom. */
+    paperConfig: PaperConfig? = null
 ) {
     var draftPoints    by remember(page, activeTool) { mutableStateOf<List<Offset>>(emptyList()) }
     var draftRectStart by remember(page, activeTool) { mutableStateOf<Offset?>(null) }
@@ -184,23 +188,36 @@ internal fun PdfContinuousPage(
             }
     ) {
         if (bitmap == null) {
-            Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF1976D2), strokeWidth = 2.dp)
+            if (paperConfig != null) {
+                // For synthetic note documents, immediately render the procedural paper
+                // without waiting for rasterizer or showing a loading indicator.
+                Canvas(Modifier.matchParentSize()) {
+                    drawSyntheticPaper(paperConfig)
+                }
+            } else {
+                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF1976D2), strokeWidth = 2.dp)
+                }
+                return@Box
             }
-            return@Box
+        } else {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
-
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth()
-        )
 
         // The image fills the box width and the box height follows it, so the content
         // frame is the full box.
         Canvas(Modifier.matchParentSize()) {
             val frame = Rect(0f, 0f, size.width, size.height)
+
+            // Render procedural synthetic paper template if configured
+            if (paperConfig != null) {
+                drawSyntheticPaper(paperConfig)
+            }
 
             // Text selection highlight — the platform selection colour, one band per line fragment.
             // Drawn inside the zoom layer so it scales with the page, exactly like the glyphs.

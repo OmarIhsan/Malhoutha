@@ -238,9 +238,11 @@ fun DocsApp(shortcutRoute: String? = null, incomingPdfUri: android.net.Uri? = nu
 
         val contentBackdrop = rememberLayerBackdrop()
 
+        val posture = com.malhoutha.ui.rememberDevicePosture()
         CompositionLocalProvider(
             LocalResources provides localizedContext.resources,
-            LocalIsDarkMode provides isDarkMode
+            LocalIsDarkMode provides isDarkMode,
+            com.malhoutha.ui.LocalDevicePosture provides posture
         ) {
             Box(Modifier.fillMaxSize()) {
                 // Captured layer = wallpaper + the live screen. The floating tab bar

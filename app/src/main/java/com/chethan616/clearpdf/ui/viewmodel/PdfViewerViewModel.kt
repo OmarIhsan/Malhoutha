@@ -167,7 +167,9 @@ data class PdfViewerUiState(
     // rendered by the built-in renderers on a device that supports the optional engine.
     val showOfficeEngineHint: Boolean = false,
     /** True when the optional Office engine (LibreOffice) produced the pages on screen. */
-    val renderedByOfficeEngine: Boolean = false
+    val renderedByOfficeEngine: Boolean = false,
+    /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain) if this document is a note. */
+    val paperConfig: com.chethan616.clearpdf.ui.paper.PaperConfig? = null
 )
 
 class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel() {
@@ -179,6 +181,15 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
     fun dismissOfficeEngineHint(context: Context) {
         com.chethan616.clearpdf.office.OfficeEngine.dismissHint(context)
         _uiState.value = _uiState.value.copy(showOfficeEngineHint = false)
+    }
+
+    /** Updates the procedural synthetic paper template and persists it for this note document. */
+    fun updatePaperConfig(context: Context, config: com.chethan616.clearpdf.ui.paper.PaperConfig) {
+        _uiState.value = _uiState.value.copy(paperConfig = config)
+        val targetUri = _uiState.value.originalUri ?: _uiState.value.document?.uri
+        if (targetUri != null) {
+            com.chethan616.clearpdf.ui.paper.NotePaperManager.savePaperConfig(context, targetUri, config)
+        }
     }
 
     private val renderingPages = mutableSetOf<Pair<Uri, Int>>()
@@ -272,6 +283,9 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
                 val displayName = queryFileName(context, uri)
                     ?: RecentFilesManager.getRecents(context).firstOrNull { it.uriString == uri.toString() }?.name
                     ?: doc.name
+                val notePaperConfig = com.chethan616.clearpdf.ui.paper.NotePaperManager.getPaperConfig(context, uri)
+                    ?: com.chethan616.clearpdf.ui.paper.NotePaperManager.getPaperConfig(context, renderedUri)
+
                 _uiState.value = _uiState.value.copy(
                     fileName = displayName,
                     pageCount = doc.pageCount,
@@ -294,7 +308,8 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
                     exportError = null,
                     lastExportedUri = null,
                     showOfficeEngineHint = com.chethan616.clearpdf.office.OfficeEngine.shouldOfferHint(context, displayName),
-                    renderedByOfficeEngine = renderedUri.path?.contains("/office-pdf/") == true
+                    renderedByOfficeEngine = renderedUri.path?.contains("/office-pdf/") == true,
+                    paperConfig = notePaperConfig
                 )
                 // The ORIGINAL uri, deliberately — not `openedUri`.
                 //

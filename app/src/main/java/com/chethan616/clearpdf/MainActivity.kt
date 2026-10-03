@@ -75,7 +75,10 @@ open class MainActivity : ComponentActivity() {
         } else shortcutRoute
 
         setContent {
-            DocsApp(shortcutRoute = effectiveRoute, incomingPdfUri = incomingPdfUri)
+            val posture = com.malhoutha.ui.rememberDevicePosture()
+            CompositionLocalProvider(com.malhoutha.ui.LocalDevicePosture provides posture) {
+                DocsApp(shortcutRoute = effectiveRoute, incomingPdfUri = incomingPdfUri)
+            }
         }
     }
 

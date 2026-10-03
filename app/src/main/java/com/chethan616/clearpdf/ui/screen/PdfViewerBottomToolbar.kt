@@ -2,131 +2,145 @@ package com.chethan616.clearpdf.ui.screen
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CropSquare
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.FormatListNumbered
-import androidx.compose.material.icons.rounded.Gesture
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
-import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Slideshow
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.SwapVert
-import androidx.compose.material.icons.rounded.Undo
-import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material.icons.rounded.UploadFile
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.AutoFixNormal
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.MenuBook
-import com.kyant.shapes.Capsule
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.PanTool
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.malhoutha.R
-import com.chethan616.clearpdf.ui.theme.LiquidGlassColors
-import com.chethan616.clearpdf.ui.components.CloseCrossIcon
-import com.chethan616.clearpdf.ui.components.GlassMotion
 import com.chethan616.clearpdf.ui.components.LiquidButton
 import com.chethan616.clearpdf.ui.components.LiquidIconButton
-import com.chethan616.clearpdf.ui.components.ShareMorphButton
 import com.chethan616.clearpdf.ui.components.carouselEdges
 import com.chethan616.clearpdf.ui.components.viewerGlass
 import com.chethan616.clearpdf.ui.utils.UISensor
 import com.chethan616.clearpdf.utils.DocKind
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.malhoutha.R
+import com.malhoutha.ui.LocalDevicePosture
+import kotlin.math.roundToInt
 
 /**
- * How long one face (selector or sub-toolbar) takes to fade out before the other fades in. The
- * fade-out tweens use the same value, so the incoming face starts exactly as the outgoing one lands
- * at alpha 0 — a clean sequential cross-fade with no overlap.
+ * Curated 3-slot Academic Inking Palette for Zero-Tap color switching:
+ * - Carbon Black: Primary lecture notation and formulas (#1A1A1E)
+ * - Academic Blue: Sub-headers, theorem definitions, diagrams (#1976D2)
+ * - Alert Crimson: Exam alerts, urgent corrections, deadlines (#D32F2F)
  */
-private const val FaceHandoffMillis = 150
+object AcademicPalette {
+    const val CarbonBlackHex = 0xFF1A1A1EL
+    const val AcademicBlueHex = 0xFF1976D2L
+    const val AlertCrimsonHex = 0xFFD32F2FL
 
-/**
- * A glass surface and its controls are siblings on purpose. [viewerGlass] owns a shaped offscreen
- * layer, which is exactly what gives the panel its clean rounded material; placing animated buttons
- * inside that layer clips their press-deformation at the panel edge. This surface keeps the glass
- * clipped and lets the interactive content paint in an overflow-safe layer above it.
- */
-@Composable
-private fun ViewerGlassOverflowSurface(
-    modifier: Modifier,
-    backdrop: LayerBackdrop,
-    color: Color,
-    content: @Composable BoxScope.() -> Unit
-) {
-    Box(modifier) {
-        Box(Modifier.matchParentSize().viewerGlass(backdrop, color))
-        Box(Modifier.fillMaxWidth().zIndex(1f), content = content)
-    }
+    val CarbonBlack = Color(CarbonBlackHex)
+    val AcademicBlue = Color(AcademicBlueHex)
+    val AlertCrimson = Color(AlertCrimsonHex)
+
+    val Swatches = listOf(
+        Triple(CarbonBlackHex, CarbonBlack, "Carbon Black"),
+        Triple(AcademicBlueHex, AcademicBlue, "Academic Blue"),
+        Triple(AlertCrimsonHex, AlertCrimson, "Alert Crimson")
+    )
 }
 
+/**
+ * Native Floating Liquid Glass Toolbar for Malhoutha:
+ *
+ * Implements the exact layout, ergonomics, and tool progression of the legacy native Android
+ * ToolCapsule (from notes_app_native_android) rendered with ClearPDF's :backdrop Liquid Glass
+ * shader system.
+ *
+ * Exact Visual Topology:
+ * 1. Drag Handle: Subtle pill indicator at the lead edge for repositioning.
+ * 2. Navigation / Pointer: Hand / Selection icon (PdfEditTool.None).
+ * 3. Primary Inking Tools:
+ *    - Pen (PdfEditTool.Draw) with live color tip indicator.
+ *    - Highlighter (PdfEditTool.Highlight).
+ *    - Eraser (PdfEditTool.Eraser).
+ * 4. Hairline Divider.
+ * 5. Zero-Tap Academic Color Well:
+ *    - Exactly 3 exposed circular swatches (#1A1A1E, #1976D2, #D32F2F).
+ *    - Spring scale animation and high-contrast active ring.
+ * 6. Hairline Divider.
+ * 7. History Controls:
+ *    - Undo (Icons.AutoMirrored.Rounded.Undo).
+ *    - Redo (Icons.AutoMirrored.Rounded.Redo).
+ * 8. Trailing Shelf Flyout:
+ *    - Hairline divider and More Tools button (Icons.Rounded.Apps) for stroke presets,
+ *      clear page, signature, image import, search/find, and export.
+ *
+ * Surface & Ergonomics:
+ * - 28.dp corner radius with 0.75.dp specular highlight border.
+ * - Dynamic Luminance: Frost automatically adapts to dark or light document substrates.
+ * - Responsive Dual-Mode Docking:
+ *   - Tablet mode (TabletLandscape/Portrait): 56dp vertical capsule anchored at CenterStart.
+ *   - Mobile/Split mode (PhonePortrait/Landscape): 56dp horizontal capsule anchored at BottomCenter.
+ */
 @Composable
 internal fun PdfViewerBottomToolbar(
-    // display state
+    // Display state
     activeTool: PdfEditTool,
     drawingToolActive: Boolean,
     showFindBar: Boolean,
@@ -142,12 +156,11 @@ internal fun PdfViewerBottomToolbar(
     exportMessage: String?,
     lastExportedUri: Uri?,
     activeIsSignature: Boolean,
-    // Undo/clear are driven by the viewer's own history rather than by a list handed down here: the
-    // page the user is drawing on is NOT `firstVisibleItemIndex`, so a list picked by the toolbar
-    // was routinely the wrong one.
     canUndo: Boolean,
-    // callbacks
+    canRedo: Boolean = false,
+    // Callbacks
     onUndo: () -> Unit,
+    onRedo: () -> Unit = {},
     onClearPage: () -> Unit,
     onSetActiveTool: (PdfEditTool) -> Unit,
     onToggleFindBar: () -> Unit,
@@ -165,728 +178,720 @@ internal fun PdfViewerBottomToolbar(
     onOpenAnotherPdf: () -> Unit,
     onShareDocument: () -> Unit,
     onEditorOpenChanged: (Boolean) -> Unit = {},
-    // Same purpose as [onEditorOpenChanged]: a long-press on the share capsule is a gesture the
-    // viewer cannot see, so without this the 5s chrome auto-hide fires mid-hold and takes the button
-    // out from under the finger.
     onShareHoldChanged: (Boolean) -> Unit = {},
     onRecolorSignature: (Long) -> Unit,
     backdrop: LayerBackdrop,
     uiSensor: UISensor,
-    // Adaptive chrome palette (dark ink on light pages, white on dark pages).
     fg: Color,
     fgSoft: Color,
     glass: Color,
     chip: Color,
-    // Original document family (derived from the file name) so tools can adapt — e.g. PPT shows a
-    // "coming soon" placeholder instead of the annotation tools.
     docKind: DocKind = DocKind.Pdf
 ) {
-    val accent = Color(0xFF1976D2)
+    val posture = LocalDevicePosture.current
+    val isVertical = posture.useLateralDock
+    val haptic = LocalHapticFeedback.current
 
-    // The floating pills paint nothing at all, exactly as Home's controls do: `LiquidIconButton` is
-    // called there with no `surfaceColor`, so its `onDrawSurface` is a no-op and the button is pure
-    // refraction. `drawRect(Color.Transparent)` is the same no-op for the `viewerGlass` surfaces
-    // here. The header's back and search circles already work this way; without this the Editor
-    // Tools pill, the tool row and the share capsule were the only chrome left carrying a tint, and
-    // sitting beside clear circles they read as slabs.
-    //
-    // `glass` is deliberately still used for the *panels* (the draw/OCR/image sub-toolbar and the
-    // export-feedback strip): those are dense rows of controls that need a plate to sit on, and they
-    // cover the document rather than floating over it.
-    val pillGlass = Color.Transparent
-
-    val showDrawTools  = drawingToolActive
-    val showImageTools = activeTool == PdfEditTool.Image && activeImageId != null
-
-    // The two faces of the toolbar never share the screen: the SELECTOR face (the tool chips + the
-    // blue "Editor Tools" pill) and the SUB-TOOLBAR face (draw / OCR / image). `subActive` is the
-    // dimension that swaps them.
-    val subActive = showDrawTools || showImageTools
-    // Apple-style hand-off. The old code removed the selector face INSTANTLY (ExitTransition.None)
-    // while the sub-toolbar faded in, so the two vanished/appeared on top of each other. Instead we
-    // run a tiny two-phase gate: the outgoing face fades fully out, and only THEN does the incoming
-    // face fade in — they never overlap in layout, which is also what used to make the sub-toolbar
-    // open on top and then visibly drop as the pill collapsed.
-    var selectorGate by remember { mutableStateOf(!subActive) }
-    var subGate by remember { mutableStateOf(subActive) }
-    LaunchedEffect(subActive) {
-        if (subActive) {
-            selectorGate = false                       // chips + Editor-Tools pill begin fading out
-            delay(FaceHandoffMillis.toLong())          // wait for them to clear
-            subGate = true                             // sub-toolbar fades in
-        } else {
-            subGate = false                            // sub-toolbar begins fading out
-            delay(FaceHandoffMillis.toLong())
-            selectorGate = true                        // chips + pill fade back in
-        }
+    // Spring physics configuration
+    val springSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        )
     }
 
-    // Collapsed by default (just the "Editor Tools" pill + "Open PDF" circle). Tapping
-    // the pill expands the tool set above it. Image selection auto-expands so its tools show.
-    var editorOpen by remember { mutableStateOf(false) }
-    // Idle: the tool panels cover the FULL width (scale 1). While the share capsule is morphed up,
-    // the panels above the Editor-Tools pill COMPRESS horizontally toward the left (scaleX), freeing
-    // room for the cylinder — the whole pill + its buttons shrink together, so nothing is cut.
-    var shareActive by remember { mutableStateOf(false) }
-    val toolCompress by animateFloatAsState(
-        if (shareActive) 0.84f else 1f,
-        // Bounce, matching the share capsule's own morph — both now run on GlassMotion.morph(), so the
-        // pill springs shut (and back open) with the same weight the cylinder has instead of deflating
-        // limply beside it. Safe to overshoot because this drives `scaleX`, a DRAW-time property: no
-        // per-frame re-measure of the glass, unlike a width/height spring (see GlassMotion's KDoc).
-        GlassMotion.morph(),
-        label = "toolCompress"
-    )
-    // Tell the viewer when the Editor Tools panel is open so it won't auto-hide the chrome.
-    LaunchedEffect(editorOpen) { onEditorOpenChanged(editorOpen) }
-    // Any active tool implies the editor is open (survives the chrome auto-hiding/returning).
-    LaunchedEffect(activeTool, activeImageId) {
-        if (activeTool != PdfEditTool.None || activeImageId != null) editorOpen = true
+    // Dynamic luminance: Frosted glass adapting to document background
+    val isDarkSubstrate = fg.luminance() > 0.5f
+    val dockGlassTint = if (isDarkSubstrate) {
+        Color(0xFF1E2124).copy(alpha = 0.65f)
+    } else {
+        Color(0xFFFFFFFF).copy(alpha = 0.60f)
     }
 
-    // The share capsule lives as an OVERLAY sibling of the toolbar column inside this wrapper Box.
-    // Both are bottom-anchored: when the capsule morphs taller than the column, the WRAPPER grows
-    // (real layout height = strictly upward, no overflow/clip), while the column stays pinned to the
-    // bottom — so the tool panels and the "Editor Tools" pill never move.
-    Box(Modifier.fillMaxWidth()) {
-    Column(
-        Modifier.fillMaxWidth().align(Alignment.BottomCenter).zIndex(2f),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-
-        // ── Draw / OCR / Image sub-toolbar ────────────────────────────────
-        // Rises ABOVE the pinned main row with an Apple-style spring slide + fade.
-        // Only this panel moves, so re-blur is confined to one surface.
-        AnimatedVisibility(
-            // `subGate` is delayed by [FaceHandoffMillis] after a sub-tool becomes active, so the
-            // selector face has already faded out before this fades in — the two never coexist.
-            visible = subGate && editorOpen && !showFindBar && !showSignaturePad,
-            // Fade only for the LAYOUT (one measure), and a draw-time bottom-anchored `scaleY` unfurl
-            // for the motion — the same technique as the Editor-Tools reveal. `expandVertically` here
-            // re-measured this `viewerGlass` panel every frame and re-ran its blur + lens with it,
-            // which is why the reveal read as rigid/instant rather than liquid.
-            enter   = fadeIn(tween(200)),
-            exit    = fadeOut(tween(FaceHandoffMillis))
-        ) {
-            val reveal by transition.animateFloat(
-                transitionSpec = {
-                    if (targetState == EnterExitState.Visible) spring(dampingRatio = 0.72f, stiffness = 300f)
-                    else spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
-                },
-                label = "drawToolsReveal"
-            ) { if (it == EnterExitState.Visible) 1f else 0f }
-            ViewerGlassOverflowSurface(
-                modifier = Modifier.fillMaxWidth()
-                    .graphicsLayer {
-                        scaleY = 0.9f + 0.1f * reveal
-                        transformOrigin = TransformOrigin(0.5f, 1f)
-                        translationY = (1f - reveal) * 8.dp.toPx()
-                    }
-                    .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
-                backdrop = backdrop,
-                color = glass
-            ) {
-            Column(
-                Modifier.fillMaxWidth().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Back to the tool menu (this sub-toolbar is a focused mode).
-                    LiquidIconButton(
-                        onClick = { onSetActiveTool(PdfEditTool.None) },
-                        backdrop = backdrop,
-                        tint = Color(0xFFFF6B81),
-                        modifier = Modifier.size(40.dp)
-                    ) { CloseCrossIcon(Modifier.size(13.dp), Color.White) }
-                    Box(Modifier.width(1.dp).height(26.dp).background(fg.copy(0.14f)))
-                    // Same curved-edge treatment as the main Editor-Tools carousel: clip to the
-                    // rounded shape (not the scroll's straight rectangular edge) and fade the ends so
-                    // the pen / shapes / OCR buttons slide away behind the capsule curve instead of
-                    // being chopped by a hard vertical line. Content padding keeps the first/last
-                    // button spaced like the rest.
-                    val toolRowScroll = rememberScrollState()
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .carouselEdges(toolRowScroll, clipContent = false)
-                            .horizontalScroll(toolRowScroll)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        when {
-                            showDrawTools -> {
-                                // Icon toolbar; the active tool fills with the current ink
-                                // colour via a smooth colour cross-fade.
-                                // Word docs only get the Highlight tool here (no pen/shapes) — a
-                                // curated markup experience; other doc kinds get the full shape set.
-                                val drawTools = if (docKind == DocKind.Word) listOf(
-                                    Triple(PdfEditTool.Highlight, Icons.Rounded.Brush, R.string.viewer_highlight)
-                                ) else listOf(
-                                    Triple(PdfEditTool.Draw,      Icons.Rounded.Edit,                 R.string.viewer_pen),
-                                    Triple(PdfEditTool.Highlight, Icons.Rounded.Brush,                R.string.viewer_highlight),
-                                    Triple(PdfEditTool.Rect,      Icons.Rounded.CropSquare,           R.string.viewer_rect),
-                                    Triple(PdfEditTool.Ellipse,   Icons.Rounded.RadioButtonUnchecked, R.string.viewer_oval),
-                                    Triple(PdfEditTool.Line,      Icons.Rounded.Remove,               R.string.viewer_line),
-                                    Triple(PdfEditTool.Arrow,     Icons.AutoMirrored.Rounded.ArrowForward, R.string.viewer_arrow)
-                                )
-                                drawTools.forEach { (tool, icon, labelRes) ->
-                                    val active = activeTool == tool
-                                    val surf by animateColorAsState(
-                                        if (active) currentColor.copy(0.95f) else chip,
-                                        tween(150), label = "toolSurface"
-                                    )
-                                    val ink by animateColorAsState(if (active) Color.White else fg, tween(150), label = "toolInk")
-                                    LiquidIconButton(
-                                        onClick = { onSetActiveTool(tool) },
-                                        backdrop = backdrop,
-                                        surfaceColor = surf,
-                                        modifier = Modifier.size(40.dp)
-                                    ) { Icon(icon, stringResource(labelRes), Modifier.size(19.dp), ink) }
-                                }
-                                Box(Modifier.width(1.dp).height(26.dp).background(fg.copy(0.14f)))
-                                LiquidIconButton(
-                                    onClick  = onUndo,
-                                    backdrop = backdrop,
-                                    surfaceColor = chip,
-                                    modifier = Modifier.size(40.dp)
-                                ) { Icon(Icons.Rounded.Undo, stringResource(R.string.viewer_undo), Modifier.size(19.dp), fg.copy(if (canUndo) 1f else 0.35f)) }
-                                LiquidIconButton(
-                                    onClick  = onClearPage,
-                                    backdrop = backdrop,
-                                    tint = LiquidGlassColors.Red,
-                                    modifier = Modifier.size(40.dp)
-                                ) { Icon(Icons.Rounded.Delete, stringResource(R.string.viewer_clear), Modifier.size(19.dp), Color.White) }
-                            }
-
-                            showImageTools -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    LiquidButton(onClick = onImageDone, backdrop = backdrop, tint = Color(0xFF00C853)) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), Color.White)
-                                            BasicText(stringResource(R.string.viewer_done), style = TextStyle(Color.White, 14.sp, FontWeight.Bold))
-                                        }
-                                    }
-
-                                    LiquidButton(onClick = onReplaceImage, backdrop = backdrop, tint = Color(0xFF1976D2)) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(Icons.Rounded.SwapHoriz, null, Modifier.size(18.dp), Color.White)
-                                            BasicText(
-                                                if (activeIsSignature) stringResource(R.string.viewer_new_sign) else stringResource(R.string.viewer_replace),
-                                                style = TextStyle(Color.White, 13.sp, FontWeight.Medium)
-                                            )
-                                        }
-                                    }
-
-                                    LiquidButton(onClick = onDeleteImage, backdrop = backdrop, tint = Color(0xFFEF5350)) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp), Color.White)
-                                            BasicText(stringResource(R.string.delete), style = TextStyle(Color.White, 13.sp, FontWeight.Medium))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Attributes — stroke sizes (draw only) + colour beads on ONE line,
-                // so the toolbar stays compact instead of stacking rows. Same curved-edge fade as the
-                // tool row above, so the colour beads disappear behind the capsule curve rather than a
-                // straight cut.
-                val attrRowScroll = rememberScrollState()
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .carouselEdges(attrRowScroll, clipContent = false)
-                        .horizontalScroll(attrRowScroll)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    if (showDrawTools) {
-                        listOf("S" to 3f, "M" to 6f, "L" to 11f, "XL" to 18f).forEach { (label, w) ->
-                            val sel = currentStrokeWidth == w
-                            val surf by animateColorAsState(if (sel) currentColor.copy(0.85f) else chip, tween(150), label = "sizeSurface")
-                            val ink by animateColorAsState(if (sel) Color.White else fg, tween(150), label = "sizeInk")
-                            LiquidButton(onClick = { onSetStrokeWidth(w) }, backdrop = backdrop, surfaceColor = surf) {
-                                BasicText(label, style = TextStyle(ink, 12.sp, FontWeight.Medium))
-                            }
-                        }
-                        Box(Modifier.width(1.dp).height(24.dp).background(fg.copy(0.14f)))
-                    }
-                    listOf(
-                        0xFF00BCD4L, 0xFFFFB300L, 0xFF4CAF50L, 0xFFEF5350L,
-                        0xFF42A5F5L, 0xFFAB47BCL, 0xFF26A69AL, 0xFFE0E0E0L
-                    ).forEach { cl ->
-                        val sel = currentColorLong == cl
-                        LiquidIconButton(
-                            onClick      = { onSetColorLong(cl); if (showImageTools) onRecolorSignature(cl) },
-                            backdrop     = backdrop,
-                            surfaceColor = Color(cl),
-                            modifier     = Modifier.size(if (sel) 34.dp else 28.dp)
-                        ) {
-                            if (sel) Icon(
-                                Icons.Rounded.Check, null, Modifier.size(15.dp),
-                                if (Color(cl).luminance() > 0.6f) Color.Black.copy(0.7f) else Color.White
-                            )
-                        }
-                    }
-                }
-            }
-            }
-        }
-
-        // ── Export feedback row ────────────────────────────────────────────
-        if (exportError != null || exportMessage != null || isExporting) {
-            Row(
-                Modifier.fillMaxWidth().viewerGlass(backdrop, glass).padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment     = Alignment.CenterVertically
-            ) {
-                when {
-                    isExporting -> BasicText(stringResource(R.string.viewer_saving), style = TextStyle(fgSoft, 12.sp))
-                    exportError != null -> {
-                        BasicText(exportError, style = TextStyle(Color(0xFFE53935), 12.sp))
-                        LiquidButton(onClick = onDismissExportFeedback, backdrop = backdrop, surfaceColor = chip) {
-                            BasicText(stringResource(R.string.dismiss), style = TextStyle(fg, 11.sp, FontWeight.Medium))
-                        }
-                    }
-                    exportMessage != null -> {
-                        BasicText(exportMessage, style = TextStyle(Color(0xFFB9F6CA), 12.sp))
-                        if (lastExportedUri != null) {
-                            LiquidButton(onClick = onOpenExportedFile, backdrop = backdrop, tint = Color(0xFF1976D2)) {
-                                BasicText(stringResource(R.string.open), style = TextStyle(Color.White, 11.sp, FontWeight.Medium))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-
-        // ── Tool selector row — revealed above the fixed "Editor Tools" bar when
-        // the editor is open. Hidden once a sub-tool is active (focused mode) so the
-        // screen isn't stacked with panels — the sub-toolbar's ✕ returns here.
-        AnimatedVisibility(
-            // Gated by `selectorGate`, which drops the instant a sub-tool becomes active — so the
-            // chips fade out FIRST and the sub-toolbar (held back by `subGate`) only fades in once
-            // this space is clear. The two faces no longer overlap, so a real fading exit is finally
-            // safe here: it can hold its layout space while it fades because nothing is fading in on
-            // top of it yet.
-            visible = selectorGate && editorOpen && !showFindBar && !showSignaturePad && activeImageId == null,
-            enter   = fadeIn(tween(200)),
-            exit    = fadeOut(tween(FaceHandoffMillis))
-        ) {
-            val reveal by transition.animateFloat(
-                transitionSpec = {
-                    if (targetState == EnterExitState.Visible) spring(dampingRatio = 0.72f, stiffness = 300f)
-                    else spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
-                },
-                label = "editorToolsReveal"
-            ) { if (it == EnterExitState.Visible) 1f else 0f }
-            Box(
-                Modifier
-                    .graphicsLayer {
-                        scaleY = 0.9f + 0.1f * reveal
-                        transformOrigin = TransformOrigin(0.5f, 1f)
-                        translationY = (1f - reveal) * 8.dp.toPx()
-                    }
-                    .zIndex(1f)
-            ) {
-            if (docKind == DocKind.Ppt) {
-                // PowerPoint editing isn't available yet — a friendly placeholder instead of the
-                // annotation tools (which don't map cleanly onto slides).
-                ViewerGlassOverflowSurface(
-                    modifier = Modifier.fillMaxWidth()
-                        .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
-                    backdrop = backdrop,
-                    color = pillGlass
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.Slideshow, null, Modifier.size(20.dp), fg)
-                        BasicText(stringResource(R.string.viewer_tools_coming_soon), style = TextStyle(fg, 14.sp, FontWeight.SemiBold))
-                    }
-                }
-            } else if (docKind == DocKind.Word) {
-                // Curated Word reading/markup set — Select Text, Highlight, Find. No PDF-centric
-                // shapes / add-image / text-box / note / eraser / sign.
-                val wordScroll = rememberScrollState()
-                ViewerGlassOverflowSurface(
-                    modifier = Modifier.fillMaxWidth()
-                        .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
-                    backdrop = backdrop,
-                    color = pillGlass
-                ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        // Keep the existing fade mask and scroll behavior; the extra vertical
-                        // breathing room is what lets a pressed chip deform without touching the
-                        // viewport's top or bottom edge.
-                        .carouselEdges(wordScroll, clipContent = false)
-                        .horizontalScroll(wordScroll)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Vivid "Get it" glass tint; an idle tool sits a shade deeper than the active one.
-                    fun wDim(active: Boolean) = if (active) Color.Unspecified else Color.Black.copy(0.10f)
-                    val hlOn = activeTool == PdfEditTool.Highlight
-                    LiquidButton(onClick = { onSetActiveTool(if (hlOn) PdfEditTool.None else PdfEditTool.Highlight) }, backdrop = backdrop, tint = Color(0xFFF9A825), surfaceColor = wDim(hlOn)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Brush, null, Modifier.size(14.dp), Color.White)
-                            BasicText(stringResource(R.string.viewer_highlight), style = TextStyle(Color.White, 12.sp, FontWeight.Medium))
-                        }
-                    }
-                    LiquidButton(onClick = onToggleFindBar, backdrop = backdrop, tint = Color(0xFF0277BD), surfaceColor = wDim(showFindBar)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Search, null, Modifier.size(14.dp), Color.White)
-                            BasicText(stringResource(R.string.viewer_find), style = TextStyle(Color.White, 12.sp, FontWeight.Medium))
-                        }
-                    }
-                }
-                }
+    // Specular highlight border: 0.75.dp semi-transparent white gradient
+    val specularHighlight = remember(isDarkSubstrate) {
+        Brush.linearGradient(
+            colors = if (isDarkSubstrate) {
+                listOf(
+                    Color.White.copy(alpha = 0.38f),
+                    Color.White.copy(alpha = 0.12f),
+                    Color.White.copy(alpha = 0.04f)
+                )
             } else {
-            val toolScroll = rememberScrollState()
-            ViewerGlassOverflowSurface(
-                modifier = Modifier.fillMaxWidth()
-                    .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
+                listOf(
+                    Color.White.copy(alpha = 0.85f),
+                    Color.White.copy(alpha = 0.35f),
+                    Color.White.copy(alpha = 0.15f)
+                )
+            }
+        )
+    }
+
+    val accent = Color(0xFF1976D2)
+    var toolsFlyoutOpen by rememberSaveable { mutableStateOf(false) }
+
+    // Repositioning drag offsets (confined exclusively to the drag handle)
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+
+    // Active tool states
+    val pointerActive = activeTool == PdfEditTool.None && !drawingToolActive
+    val penActive = drawingToolActive && activeTool == PdfEditTool.Draw
+    val hlActive = activeTool == PdfEditTool.Highlight
+    val eraserActive = activeTool == PdfEditTool.Eraser
+
+    // Animated scales for spring selection physics
+    val pointerScale by animateFloatAsState(if (pointerActive) 1.10f else 1.0f, springSpec, label = "pointerScale")
+    val penScale by animateFloatAsState(if (penActive) 1.10f else 1.0f, springSpec, label = "penScale")
+    val hlScale by animateFloatAsState(if (hlActive) 1.10f else 1.0f, springSpec, label = "hlScale")
+    val eraserScale by animateFloatAsState(if (eraserActive) 1.10f else 1.0f, springSpec, label = "eraserScale")
+    val moreScale by animateFloatAsState(if (toolsFlyoutOpen) 1.10f else 1.0f, springSpec, label = "moreScale")
+
+    val buttonSize = if (isVertical) 40.dp else 36.dp
+    val iconSize = if (isVertical) 20.dp else 18.dp
+    val swatchTouchSize = if (isVertical) 36.dp else 32.dp
+    val swatchDiscSize = if (isVertical) 22.dp else 19.dp
+
+    // ── Primary Tool Capsule Content ───────────────────────────────────────────
+    val capsuleContent: @Composable () -> Unit = {
+        // 1. Drag Handle
+        DockDragHandle(
+            isVertical = isVertical,
+            isDark = isDarkSubstrate,
+            modifier = Modifier.pointerInput(isVertical) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (isVertical) {
+                        dragOffsetY = (dragOffsetY + dragAmount.y).coerceIn(-180f, 180f)
+                    } else {
+                        dragOffsetX = (dragOffsetX + dragAmount.x).coerceIn(-160f, 160f)
+                    }
+                }
+            }
+        )
+
+        // 2. Navigation / Pointer (Hand icon)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(pointerScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(PdfEditTool.None)
+                },
                 backdrop = backdrop,
-                color = pillGlass
+                surfaceColor = if (pointerActive) accent.copy(alpha = 0.95f) else chip,
+                tint = if (pointerActive) accent else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
             ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    // The existing carouselEdges mask remains unchanged; this row is simply
-                    // rendered above the separate glass sibling so its chips can overflow cleanly.
-                    .carouselEdges(toolScroll, clipContent = false)
-                    .horizontalScroll(toolScroll)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                Icon(
+                    imageVector = Icons.Rounded.PanTool,
+                    contentDescription = "Navigate / Select",
+                    tint = if (pointerActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+
+        // 3. Primary Inking Tools:
+        // A. Pen with live color tip indicator
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(penScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (penActive) PdfEditTool.None else PdfEditTool.Draw)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (penActive) currentColor.copy(alpha = 0.95f) else chip,
+                tint = if (penActive) currentColor else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
             ) {
-                // Each tool wears its own professional colour (like the Sign button):
-                // a solid colour chip, brighter when active. White ink reads on all of them.
-                // Vivid "Get it" glass tint; an idle tool sits a shade deeper than the active one.
-                fun toolDim(active: Boolean) = if (active) Color.Unspecified else Color.Black.copy(0.10f)
-
-                val drawOn = drawingToolActive
-                LiquidButton(
-                    onClick  = { onSetActiveTool(if (drawOn) PdfEditTool.None else PdfEditTool.Draw) },
-                    backdrop = backdrop,
-                    tint = Color(0xFF0097A7), surfaceColor = toolDim(drawOn)
-                ) { BasicText(stringResource(R.string.viewer_draw_tools), style = TextStyle(Color.White, 12.sp, FontWeight.Medium)) }
-
-                val imgOn = activeTool == PdfEditTool.Image
-                LiquidButton(
-                    onClick  = { onPickImage() },
-                    backdrop = backdrop,
-                    tint = Color(0xFF1565C0), surfaceColor = toolDim(imgOn)
-                ) { BasicText(stringResource(R.string.viewer_add_image), style = TextStyle(Color.White, 12.sp, FontWeight.Medium)) }
-
-                val textOn = activeTool == PdfEditTool.Text
-                LiquidButton(
-                    onClick  = { onSetActiveTool(if (textOn) PdfEditTool.None else PdfEditTool.Text) },
-                    backdrop = backdrop,
-                    tint = Color(0xFF00796B), surfaceColor = toolDim(textOn)
-                ) { BasicText(stringResource(R.string.anno_text_title), style = TextStyle(Color.White, 12.sp, FontWeight.Medium)) }
-
-                val noteOn = activeTool == PdfEditTool.Note
-                LiquidButton(
-                    onClick  = { onSetActiveTool(if (noteOn) PdfEditTool.None else PdfEditTool.Note) },
-                    backdrop = backdrop,
-                    tint = Color(0xFFEF6C00), surfaceColor = toolDim(noteOn)
-                ) { BasicText(stringResource(R.string.anno_note_title), style = TextStyle(Color.White, 12.sp, FontWeight.Medium)) }
-
-                val eraseOn = activeTool == PdfEditTool.Eraser
-                LiquidButton(
-                    onClick  = { onSetActiveTool(if (eraseOn) PdfEditTool.None else PdfEditTool.Eraser) },
-                    backdrop = backdrop,
-                    tint = Color(0xFFC62828), surfaceColor = toolDim(eraseOn)
-                ) { BasicText(stringResource(R.string.viewer_eraser), style = TextStyle(Color.White, 12.sp, FontWeight.Medium)) }
-
-                LiquidButton(onClick = onShowSignaturePad, backdrop = backdrop, tint = Color(0xFF5E35B1), surfaceColor = toolDim(false)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Gesture, null, Modifier.size(14.dp), Color.White)
-                        BasicText(stringResource(R.string.viewer_sign), style = TextStyle(Color.White, 12.sp, FontWeight.Medium))
-                    }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = "Pen Tool",
+                        tint = if (penActive) (if (currentColor.luminance() > 0.65f) Color.Black else Color.White) else fg,
+                        modifier = Modifier.size(iconSize)
+                    )
+                    // Live color tip indicator at bottom-right corner of pen icon
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(currentColor)
+                            .border(1.dp, if (penActive) Color.White else fg.copy(alpha = 0.4f), CircleShape)
+                    )
                 }
+            }
+        }
 
-                LiquidButton(
-                    onClick = onToggleFindBar,
-                    backdrop = backdrop,
-                    tint = Color(0xFF0277BD), surfaceColor = toolDim(showFindBar)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Rounded.Search, null, Modifier.size(14.dp), Color.White)
-                        BasicText(stringResource(R.string.viewer_find), style = TextStyle(Color.White, 12.sp, FontWeight.Medium))
-                    }
-                }
+        // B. Highlighter
+        val hlColor = Color(0xFFF9A825)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(hlScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (hlActive) PdfEditTool.None else PdfEditTool.Highlight)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (hlActive) hlColor.copy(alpha = 0.95f) else chip,
+                tint = if (hlActive) hlColor else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Brush,
+                    contentDescription = "Highlighter",
+                    tint = if (hlActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
 
-                // Undo used to live only inside the draw strip, so placing a text box, a note, an
-                // image or a signature left nothing to undo with. The draw strip has its own copy,
-                // hence the exclusion here.
-                if (canUndo && !drawingToolActive) {
-                    LiquidButton(onClick = onUndo, backdrop = backdrop, surfaceColor = chip) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Rounded.Undo, null, Modifier.size(14.dp), fg)
-                            BasicText(stringResource(R.string.viewer_undo), style = TextStyle(fg, 12.sp, FontWeight.Medium))
+        // C. Eraser
+        val eraserColor = Color(0xFFC62828)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(eraserScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (eraserActive) PdfEditTool.None else PdfEditTool.Eraser)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (eraserActive) eraserColor.copy(alpha = 0.95f) else chip,
+                tint = if (eraserActive) eraserColor else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = "Eraser",
+                    tint = if (eraserActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+
+        // 4. Hairline Divider
+        DockHairlineDivider(isVertical = isVertical, fg = fg)
+
+        // 5. Zero-Tap Academic Color Well (Black, Blue, Crimson)
+        val colorWellContent = @Composable {
+            AcademicPalette.Swatches.forEach { (colorHex, colorVal, name) ->
+                val isSelected = currentColorLong == colorHex
+                val swatchScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.20f else 1.0f,
+                    animationSpec = springSpec,
+                    label = "swatchScale_$name"
+                )
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(swatchTouchSize)
+                        .clip(CircleShape)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSetColorLong(colorHex)
+                            if (!penActive) {
+                                onSetActiveTool(PdfEditTool.Draw)
+                            }
                         }
-                    }
-                }
-
-                if (drawingToolActive || activeTool == PdfEditTool.Image || activeTool == PdfEditTool.Eraser || activeTool == PdfEditTool.Text || activeTool == PdfEditTool.Note) {
-                    LiquidIconButton(
-                        onClick  = { onSetActiveTool(PdfEditTool.None) },
-                        backdrop = backdrop,
-                        tint     = Color(0xFFEF5350),
-                        modifier = Modifier.size(32.dp)
-                    ) { CloseCrossIcon(Modifier.size(14.dp), Color.White) }
-                }
-
-                if (zoomScale > 1.01f) {
-                    LiquidButton(onClick = onResetZoom, backdrop = backdrop, surfaceColor = chip) {
-                        BasicText(
-                            stringResource(R.string.viewer_reset_zoom, (zoomScale * 100 + 0.5f).toInt()),
-                            style = TextStyle(fg, 12.sp, FontWeight.Medium)
+                ) {
+                    // High-contrast outer selection ring
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .size(swatchTouchSize - 4.dp)
+                                .border(
+                                    width = 2.dp,
+                                    color = if (isDarkSubstrate) Color.White else Color(0xFF1976D2),
+                                    shape = CircleShape
+                                )
                         )
                     }
-                }
 
-                if (hasEdits && !isExporting) {
-                    LiquidButton(onClick = onShowSaveDialog, backdrop = backdrop, tint = Color(0xFF1976D2)) {
-                        BasicText(stringResource(R.string.viewer_save_edits), style = TextStyle(Color.White, 12.sp, FontWeight.Medium))
+                    // Visual color disk
+                    val checkmarkTint = if (colorVal.luminance() > 0.5f) Color.Black else Color.White
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .scale(swatchScale)
+                            .size(swatchDiscSize)
+                            .clip(CircleShape)
+                            .background(colorVal)
+                            .border(
+                                width = 1.dp,
+                                color = if (colorVal.luminance() > 0.85f) Color.Gray.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.35f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Active color $name",
+                                tint = checkmarkTint,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
                     }
                 }
-            }
-            }
-            }
             }
         }
 
-        // ── Collapsed home bar: one "Editor Tools" pill (expands the tools above it)
-        // + a compact circular "Open another PDF" button. Hidden while a sub-tool is
-        // active so that focused mode shows ONLY the sub-toolbar (one panel).
-        AnimatedVisibility(
-            // Same `selectorGate` as the tool chips above, so the bar fades out in lockstep
-            // if a modal tool (like find bar or signature pad) takes over.
-            visible = selectorGate && !showFindBar && !showSignaturePad,
-            enter   = fadeIn(tween(180)),
-            exit    = fadeOut(tween(FaceHandoffMillis))
-        ) {
-            ViewerGlassOverflowSurface(
+        if (isVertical) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { scaleX = toolCompress; transformOrigin = TransformOrigin(0f, 0.5f) },
-                backdrop = backdrop,
-                color = glass
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(fg.copy(alpha = 0.06f))
+                    .padding(vertical = 4.dp, horizontal = 2.dp)
             ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val readActive = activeTool == PdfEditTool.None && !drawingToolActive
-                    val penActive = drawingToolActive && activeTool == PdfEditTool.Draw
-                    val hlActive = activeTool == PdfEditTool.Highlight
-                    val eraserActive = activeTool == PdfEditTool.Eraser
+                colorWellContent()
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(fg.copy(alpha = 0.06f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                colorWellContent()
+            }
+        }
 
-                    // 1. Read Mode
-                    LiquidButton(
-                        onClick = {
-                            onSetActiveTool(PdfEditTool.None)
-                            editorOpen = false
-                        },
-                        backdrop = backdrop,
-                        tint = if (readActive) accent else Color.Unspecified,
-                        surfaceColor = if (readActive) accent.copy(alpha = 0.95f) else chip
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        // 6. Hairline Divider
+        DockHairlineDivider(isVertical = isVertical, fg = fg)
+
+        // 7. History Controls: Undo & Redo
+        LiquidIconButton(
+            onClick = {
+                if (canUndo) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onUndo()
+                }
+            },
+            backdrop = backdrop,
+            surfaceColor = chip,
+            modifier = Modifier.size(buttonSize)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Undo,
+                contentDescription = stringResource(R.string.viewer_undo),
+                tint = fg.copy(alpha = if (canUndo) 1.0f else 0.35f),
+                modifier = Modifier.size(iconSize)
+            )
+        }
+
+        LiquidIconButton(
+            onClick = {
+                if (canRedo) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onRedo()
+                }
+            },
+            backdrop = backdrop,
+            surfaceColor = chip,
+            modifier = Modifier.size(buttonSize)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Redo,
+                contentDescription = "Redo",
+                tint = fg.copy(alpha = if (canRedo) 1.0f else 0.35f),
+                modifier = Modifier.size(iconSize)
+            )
+        }
+
+        // 8. Hairline Divider & Secondary Tools Toggle
+        DockHairlineDivider(isVertical = isVertical, fg = fg)
+
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(moreScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    toolsFlyoutOpen = !toolsFlyoutOpen
+                },
+                backdrop = backdrop,
+                surfaceColor = if (toolsFlyoutOpen) accent.copy(alpha = 0.90f) else chip,
+                tint = if (toolsFlyoutOpen) accent else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Apps,
+                    contentDescription = "More Tools",
+                    tint = if (toolsFlyoutOpen) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+    }
+
+    // ── Secondary Flyout Shelf Content (Stroke Presets, Clear, Shapes/Image/Sign/Find) ────
+    val secondaryShelfContent: @Composable (isVerticalLayout: Boolean) -> Unit = { isVert ->
+        if (isVert) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+            ) {
+                if (drawingToolActive) {
+                    listOf(3f to "Fine", 6f to "Medium", 11f to "Bold").forEach { (width, label) ->
+                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
+                        LiquidButton(
+                            onClick = { onSetStrokeWidth(width) },
+                            backdrop = backdrop,
+                            surfaceColor = if (isSelected) accent.copy(alpha = 0.9f) else chip,
+                            modifier = Modifier.height(28.dp)
                         ) {
-                            Icon(
-                                Icons.Rounded.MenuBook,
-                                contentDescription = "Read Mode",
-                                modifier = Modifier.size(16.dp),
-                                tint = if (readActive) Color.White else fg
-                            )
                             BasicText(
-                                "Read",
-                                style = TextStyle(if (readActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
+                                label,
+                                style = TextStyle(
+                                    color = if (isSelected) Color.White else fg,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
-
-                    // 2. Pen
-                    LiquidButton(
-                        onClick = {
-                            onSetActiveTool(if (penActive) PdfEditTool.None else PdfEditTool.Draw)
-                        },
-                        backdrop = backdrop,
-                        tint = if (penActive) currentColor else Color.Unspecified,
-                        surfaceColor = if (penActive) currentColor.copy(alpha = 0.95f) else chip
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.Edit,
-                                contentDescription = "Pen",
-                                modifier = Modifier.size(16.dp),
-                                tint = if (penActive) Color.White else fg
-                            )
-                            BasicText(
-                                "Pen",
-                                style = TextStyle(if (penActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
-                            )
-                        }
-                    }
-
-                    // 3. Highlighter
-                    LiquidButton(
-                        onClick = {
-                            onSetActiveTool(if (hlActive) PdfEditTool.None else PdfEditTool.Highlight)
-                        },
-                        backdrop = backdrop,
-                        tint = if (hlActive) Color(0xFFF9A825) else Color.Unspecified,
-                        surfaceColor = if (hlActive) Color(0xFFF9A825).copy(alpha = 0.95f) else chip
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.Brush,
-                                contentDescription = "Highlighter",
-                                modifier = Modifier.size(16.dp),
-                                tint = if (hlActive) Color.White else fg
-                            )
-                            BasicText(
-                                "Highlighter",
-                                style = TextStyle(if (hlActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
-                            )
-                        }
-                    }
-
-                    // 4. Eraser
-                    LiquidButton(
-                        onClick = {
-                            onSetActiveTool(if (eraserActive) PdfEditTool.None else PdfEditTool.Eraser)
-                        },
-                        backdrop = backdrop,
-                        tint = if (eraserActive) Color(0xFFC62828) else Color.Unspecified,
-                        surfaceColor = if (eraserActive) Color(0xFFC62828).copy(alpha = 0.95f) else chip
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.DeleteOutline,
-                                contentDescription = "Eraser",
-                                modifier = Modifier.size(16.dp),
-                                tint = if (eraserActive) Color.White else fg
-                            )
-                            BasicText(
-                                "Eraser",
-                                style = TextStyle(if (eraserActive) Color.White else fg, 12.sp, FontWeight.SemiBold)
-                            )
-                        }
-                    }
-
-                    // Divider
-                    Box(Modifier.width(1.dp).height(22.dp).background(fg.copy(0.14f)))
-
-                    // 5. Undo
+                    Box(Modifier.width(24.dp).height(1.dp).background(fg.copy(0.12f)))
                     LiquidIconButton(
-                        onClick = onUndo,
+                        onClick = onClearPage,
                         backdrop = backdrop,
                         surfaceColor = chip,
                         modifier = Modifier.size(34.dp)
                     ) {
-                        Icon(
-                            Icons.Rounded.Undo,
-                            contentDescription = stringResource(R.string.viewer_undo),
-                            modifier = Modifier.size(17.dp),
-                            tint = fg.copy(if (canUndo) 1f else 0.35f)
-                        )
+                        Icon(Icons.Rounded.Delete, "Clear Page", Modifier.size(16.dp), fg)
                     }
+                }
 
-                    // 6. More Tools
+                LiquidIconButton(
+                    onClick = onShowSignaturePad,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(Icons.Rounded.Gesture, "Signature", Modifier.size(16.dp), fg)
+                }
+
+                LiquidIconButton(
+                    onClick = onPickImage,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(Icons.Rounded.CropSquare, "Insert Image", Modifier.size(16.dp), fg)
+                }
+
+                LiquidIconButton(
+                    onClick = onToggleFindBar,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(Icons.Rounded.Search, "Find", Modifier.size(16.dp), fg)
+                }
+
+                if (hasEdits && !isExporting) {
                     LiquidIconButton(
-                        onClick = { editorOpen = !editorOpen },
+                        onClick = onShowSaveDialog,
                         backdrop = backdrop,
-                        tint = if (editorOpen) accent else Color.Unspecified,
-                        surfaceColor = if (editorOpen) accent.copy(alpha = 0.9f) else chip,
+                        tint = Color(0xFF1976D2),
+                        surfaceColor = Color(0xFF1976D2).copy(alpha = 0.9f),
                         modifier = Modifier.size(34.dp)
                     ) {
-                        Icon(
-                            Icons.Rounded.Apps,
-                            contentDescription = "More Tools",
-                            modifier = Modifier.size(17.dp),
-                            tint = if (editorOpen) Color.White else fg
-                        )
+                        Icon(Icons.Rounded.Check, "Save", Modifier.size(16.dp), Color.White)
                     }
+                }
 
-                    // Reserve slot for the share capsule overlay
-                    Spacer(Modifier.size(46.dp))
+                LiquidIconButton(
+                    onClick = onShareDocument,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(Icons.Rounded.IosShare, "Share", Modifier.size(16.dp), fg)
+                }
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                if (drawingToolActive) {
+                    listOf(3f to "Fine", 6f to "Med", 11f to "Bold").forEach { (width, label) ->
+                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
+                        LiquidButton(
+                            onClick = { onSetStrokeWidth(width) },
+                            backdrop = backdrop,
+                            surfaceColor = if (isSelected) accent.copy(alpha = 0.9f) else chip,
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            BasicText(
+                                label,
+                                style = TextStyle(
+                                    color = if (isSelected) Color.White else fg,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Box(Modifier.width(1.dp).height(20.dp).background(fg.copy(0.12f)))
+                    LiquidIconButton(
+                        onClick = onClearPage,
+                        backdrop = backdrop,
+                        surfaceColor = chip,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Rounded.Delete, "Clear Page", Modifier.size(15.dp), fg)
+                    }
+                }
+
+                LiquidIconButton(
+                    onClick = onShowSignaturePad,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Rounded.Gesture, "Signature", Modifier.size(15.dp), fg)
+                }
+
+                LiquidIconButton(
+                    onClick = onPickImage,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Rounded.CropSquare, "Insert Image", Modifier.size(15.dp), fg)
+                }
+
+                LiquidIconButton(
+                    onClick = onToggleFindBar,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Rounded.Search, "Find", Modifier.size(15.dp), fg)
+                }
+
+                if (hasEdits && !isExporting) {
+                    LiquidIconButton(
+                        onClick = onShowSaveDialog,
+                        backdrop = backdrop,
+                        tint = Color(0xFF1976D2),
+                        surfaceColor = Color(0xFF1976D2).copy(alpha = 0.9f),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Rounded.Check, "Save", Modifier.size(15.dp), Color.White)
+                    }
+                }
+
+                LiquidIconButton(
+                    onClick = onShareDocument,
+                    backdrop = backdrop,
+                    surfaceColor = chip,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Rounded.IosShare, "Share", Modifier.size(15.dp), fg)
                 }
             }
         }
-        }
+    }
 
-        // ── Share capsule OVERLAY ──────────────────────────────────────────
-        // Sits over the reserved slot at the bottom-right. Because it's a sibling of the column
-        // (not inside it) and bottom-anchored, morphing it taller grows only this wrapper Box
-        // upward — the column (tool panels + pill) stays pinned to the base and never moves.
-        AnimatedVisibility(
-            // Sits in the pill row's reserved slot, so it rides the same `selectorGate` and fades out
-            // alongside the pill instead of popping away on its own.
-            visible = selectorGate && !showFindBar && !showSignaturePad,
-            enter = fadeIn(tween(180)),
-            exit = fadeOut(tween(FaceHandoffMillis)),
-            modifier = Modifier.align(Alignment.BottomEnd).zIndex(3f)
+    // ── Export Feedback Banner ─────────────────────────────────────────────────
+    if (exportError != null || exportMessage != null || isExporting) {
+        Row(
+            Modifier
+                .wrapContentSize()
+                .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(18.dp) })
+                .clip(RoundedCornerShape(18.dp))
+                .border(0.75.dp, specularHighlight, RoundedCornerShape(18.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            ShareMorphButton(
-                backdrop = backdrop,
-                glass = pillGlass,
-                fg = fg,
-                onOpen = onOpenAnotherPdf,
-                onShare = onShareDocument,
-                onShareModeChanged = { shareActive = it; onShareHoldChanged(it) }
+            when {
+                isExporting -> BasicText(stringResource(R.string.viewer_saving), style = TextStyle(fgSoft, 12.sp))
+                exportError != null -> {
+                    BasicText(exportError, style = TextStyle(Color(0xFFE53935), 12.sp))
+                    LiquidButton(onClick = onDismissExportFeedback, backdrop = backdrop, surfaceColor = chip) {
+                        BasicText(stringResource(R.string.dismiss), style = TextStyle(fg, 11.sp, FontWeight.Medium))
+                    }
+                }
+                exportMessage != null -> {
+                    BasicText(exportMessage, style = TextStyle(Color(0xFFB9F6CA), 12.sp))
+                    if (lastExportedUri != null) {
+                        LiquidButton(onClick = onOpenExportedFile, backdrop = backdrop, tint = Color(0xFF1976D2)) {
+                            BasicText(stringResource(R.string.open), style = TextStyle(Color.White, 11.sp, FontWeight.Medium))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Tablet Mode (Vertical Spine Dock) ──────────────────────────────────────
+    if (isVertical) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.offset { IntOffset(0, dragOffsetY.roundToInt()) }
+        ) {
+            // Main Lateral Dock (56dp width, 28dp radius)
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .wrapContentHeight()
+                    .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(28.dp) })
+                    .clip(RoundedCornerShape(28.dp))
+                    .border(
+                        width = 0.75.dp,
+                        brush = specularHighlight,
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .padding(vertical = 12.dp, horizontal = 6.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    capsuleContent()
+                }
+            }
+
+            // Secondary Flyout Shelf (Adjacent lateral glass card)
+            AnimatedVisibility(
+                visible = toolsFlyoutOpen || drawingToolActive,
+                enter = fadeIn(tween(180)) + expandHorizontally(),
+                exit = fadeOut(tween(150)) + shrinkHorizontally()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(22.dp) })
+                        .clip(RoundedCornerShape(22.dp))
+                        .border(0.75.dp, specularHighlight, RoundedCornerShape(22.dp))
+                ) {
+                    secondaryShelfContent(true)
+                }
+            }
+        }
+    } else {
+        // ── Mobile / Split-Screen Mode (Horizontal Floating Capsule) ────────────
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.offset { IntOffset(dragOffsetX.roundToInt(), 0) }
+        ) {
+            // Secondary Flyout Shelf (Floats directly above dock)
+            AnimatedVisibility(
+                visible = toolsFlyoutOpen || drawingToolActive,
+                enter = fadeIn(tween(180)) + expandVertically(),
+                exit = fadeOut(tween(150)) + shrinkVertically()
+            ) {
+                val shelfScroll = rememberScrollState()
+                Box(
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(22.dp) })
+                        .clip(RoundedCornerShape(22.dp))
+                        .border(0.75.dp, specularHighlight, RoundedCornerShape(22.dp))
+                        .carouselEdges(shelfScroll, clipContent = false)
+                        .horizontalScroll(shelfScroll)
+                ) {
+                    secondaryShelfContent(false)
+                }
+            }
+
+            // Main Bottom Floating Capsule (56dp height, 28dp radius)
+            val capsuleScroll = rememberScrollState()
+            Box(
+                modifier = Modifier
+                    .height(56.dp)
+                    .wrapContentWidth()
+                    .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(28.dp) })
+                    .clip(RoundedCornerShape(28.dp))
+                    .border(
+                        width = 0.75.dp,
+                        brush = specularHighlight,
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .carouselEdges(capsuleScroll, clipContent = false)
+                    .horizontalScroll(capsuleScroll)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    capsuleContent()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Subtle hairline separator inside the floating dock.
+ */
+@Composable
+private fun DockHairlineDivider(
+    isVertical: Boolean,
+    fg: Color,
+    modifier: Modifier = Modifier
+) {
+    if (isVertical) {
+        Box(
+            modifier = modifier
+                .padding(vertical = 2.dp)
+                .width(22.dp)
+                .height(1.dp)
+                .background(fg.copy(alpha = 0.16f))
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .padding(horizontal = 2.dp)
+                .width(1.dp)
+                .height(22.dp)
+                .background(fg.copy(alpha = 0.16f))
+        )
+    }
+}
+
+/**
+ * Subtle pill indicator at the lead edge for dock repositioning.
+ */
+@Composable
+private fun DockDragHandle(
+    isVertical: Boolean,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.25f)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .padding(if (isVertical) 4.dp else 4.dp)
+    ) {
+        if (isVertical) {
+            Box(
+                modifier = Modifier
+                    .width(20.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(handleColor)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(20.dp)
+                    .clip(CircleShape)
+                    .background(handleColor)
             )
         }
     }

@@ -21,6 +21,13 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.EditNote
+import com.malhoutha.ui.LocalDevicePosture
+import com.malhoutha.ui.DevicePosture
+import com.malhoutha.ui.gutter.GutterNotePanel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -199,6 +206,8 @@ fun PdfViewerScreen(
     // Adobe-style single-axis reading: the viewer is vertical-only. Horizontal
     // panning is still allowed inside a zoomed page (handled in PdfContinuousPage).
     val scrollOrientation = ScrollOrientation.Vertical
+    val posture = LocalDevicePosture.current
+    var isGutterOpen by rememberSaveable { mutableStateOf(false) }
     var showPageJumpDialog  by rememberSaveable { mutableStateOf(false) }
     var activeTool          by rememberSaveable { mutableStateOf(PdfEditTool.None) }
     var currentColorLong    by rememberSaveable { mutableLongStateOf(0xFF00BCD4L) }
@@ -269,6 +278,7 @@ fun PdfViewerScreen(
     // the one filling the screen, so undo silently no-op'd on an empty list. The same trap is
     // already documented for image placement at `activeImageLoc`.
     val undoStack = remember { mutableStateListOf<Int>() }
+    val redoStack = remember { mutableStateListOf<Pair<Int, PdfMarkup>>() }
 
     // Declared here (rather than lower) so the image/signature launchers below can place
     // annotations onto whichever page is under the viewport centre.
@@ -338,7 +348,10 @@ fun PdfViewerScreen(
     }
 
     /** Record that [page] just gained a markup, so undo can find it again. */
-    fun recordEdit(page: Int) { undoStack.add(page) }
+    fun recordEdit(page: Int) {
+        undoStack.add(page)
+        redoStack.clear()
+    }
 
     /**
      * Remove the most recently added markup, wherever it lives. Entries can go stale — the eraser
@@ -350,10 +363,27 @@ fun PdfViewerScreen(
         while (undoStack.isNotEmpty()) {
             val page = undoStack.removeAt(undoStack.lastIndex)
             val marks = getPageMarks(page)
-            if (marks.isNotEmpty()) { marks.removeAt(marks.lastIndex); return }
+            if (marks.isNotEmpty()) {
+                val mark = marks.removeAt(marks.lastIndex)
+                redoStack.add(page to mark)
+                return
+            }
         }
-        val marks = getPageMarks(viewportPlacementTarget().first)
-        if (marks.isNotEmpty()) marks.removeAt(marks.lastIndex)
+        val fallbackPage = viewportPlacementTarget().first
+        val marks = getPageMarks(fallbackPage)
+        if (marks.isNotEmpty()) {
+            val mark = marks.removeAt(marks.lastIndex)
+            redoStack.add(fallbackPage to mark)
+        }
+    }
+
+    /** Re-apply the last undone markup. */
+    fun redoLastEdit() {
+        if (redoStack.isNotEmpty()) {
+            val (page, mark) = redoStack.removeAt(redoStack.lastIndex)
+            getPageMarks(page).add(mark)
+            undoStack.add(page)
+        }
     }
 
     /** Clear every markup on the page under the viewport centre — the one the user can see. */
@@ -361,6 +391,7 @@ fun PdfViewerScreen(
         val page = viewportPlacementTarget().first
         getPageMarks(page).clear()
         undoStack.removeAll { it == page }
+        redoStack.removeAll { it.first == page }
     }
 
     // Add a new image/signature centred at the viewport-target on the correct page, sized
@@ -441,7 +472,7 @@ fun PdfViewerScreen(
         scale = 1f; offsetX = 0f
         activeTool = PdfEditTool.None
         selectedAnnoPage = null; selectedAnnoIndex = -1
-        annotationsByPage.clear(); undoStack.clear(); pageCanvasSizes.clear(); pageBitmapSizes.clear()
+        annotationsByPage.clear(); undoStack.clear(); redoStack.clear(); pageCanvasSizes.clear(); pageBitmapSizes.clear()
         savedMarkups = emptyMap(); pendingSaveMarkups = null; exitAfterSave = false; showUnsavedDialog = false
         textSelection.resetDocument(); viewModel.clearExportFeedback()
         showFindBar = false; findQuery = ""; viewModel.clearSearch()
@@ -928,13 +959,19 @@ fun PdfViewerScreen(
                 val extraBottomPadding = if (scale > 1f && containerHeightPx > 0)
                     with(LocalDensity.current) { (containerHeightPx * ((scale - 1f) / scale)).toDp() } else 0.dp
 
-                Box(
-                    Modifier.fillMaxSize().graphicsLayer {
-                        scaleX = scale; scaleY = scale
-                        translationX = offsetX; translationY = 0f
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                    }.onGloballyPositioned { textSelection.registerLayer(it) }
-                ) {
+                val showGutter = posture.supportsSideGutter && isGutterOpen
+
+                Row(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .weight(if (showGutter) 0.72f else 1f)
+                            .fillMaxHeight()
+                            .graphicsLayer {
+                                scaleX = scale; scaleY = scale
+                                translationX = offsetX; translationY = 0f
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                            }.onGloballyPositioned { textSelection.registerLayer(it) }
+                    ) {
                     LazyColumn(
                         state = listState,
                         flingBehavior = pageFling,
@@ -1018,11 +1055,23 @@ fun PdfViewerScreen(
                                     val m = getPageMarks(page); if (idx in m.indices) m.removeAt(idx)
                                     selectedAnnoPage = null; selectedAnnoIndex = -1
                                 },
-                                textSelection = textSelection
+                                textSelection = textSelection,
+                                paperConfig = state.paperConfig
                             )
                         }
                     }
                 }
+
+                if (showGutter) {
+                    GutterNotePanel(
+                        backdrop = contentBackdrop,
+                        onClose = { isGutterOpen = false },
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .fillMaxHeight()
+                    )
+                }
+            }
             }
         }
 
@@ -1117,6 +1166,20 @@ fun PdfViewerScreen(
                             animateIn = false
                         )
                     }
+                    if (posture.supportsSideGutter) {
+                        LiquidIconButton(
+                            onClick = { isGutterOpen = !isGutterOpen },
+                            backdrop = contentBackdrop,
+                            surfaceColor = if (isGutterOpen) LiquidGlassColors.Teal.copy(alpha = 0.9f) else Color.Transparent
+                        ) {
+                            Icon(
+                                Icons.Rounded.EditNote,
+                                contentDescription = "Margin Notes Gutter",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isGutterOpen) Color.White else topFg
+                            )
+                        }
+                    }
                     LiquidIconButton(
                         onClick = {
                             showFindBar = !showFindBar
@@ -1181,12 +1244,22 @@ fun PdfViewerScreen(
                 )
             }
 
-            // Bottom toolbar
+            // Bottom toolbar / Lateral Inking Dock
+            val isLateral = posture.useLateralDock
             AnimatedVisibility(
                 visible  = controlsVisible,
-                enter    = fadeIn(tween(200)) + slideInVertically { it / 2 },
-                exit     = fadeOut(tween(150)) + slideOutVertically { it / 2 },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                enter    = if (isLateral) fadeIn(tween(200)) + slideInHorizontally { -it } else fadeIn(tween(200)) + slideInVertically { it / 2 },
+                exit     = if (isLateral) fadeOut(tween(150)) + slideOutHorizontally { -it } else fadeOut(tween(150)) + slideOutVertically { it / 2 },
+                modifier = if (isLateral) {
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 16.dp)
+                } else {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp)
+                }
             ) {
                 val activeItem = activeImageLoc()?.third
 
@@ -1206,14 +1279,10 @@ fun PdfViewerScreen(
                     exportMessage      = state.exportMessage,
                     lastExportedUri    = state.lastExportedUri,
                     activeIsSignature  = activeItem?.isSignature == true,
-                    // Undo is history-driven, not page-driven. Two earlier attempts keyed it to a
-                    // page index — first `state.currentPage` (async, lagged behind the scroll), then
-                    // `listState.firstVisibleItemIndex` (the first *partially* visible page, which
-                    // while you draw is usually a sliver of the PREVIOUS page). Both removed from the
-                    // wrong, usually empty, list. There is no page index that reliably means "what
-                    // the user just did", so the viewer records each addition instead.
                     canUndo            = undoStack.isNotEmpty() || annotationsByPage.any { it.value.isNotEmpty() },
+                    canRedo            = redoStack.isNotEmpty(),
                     onUndo             = { undoLastEdit(); lastInteractionAtMs = System.currentTimeMillis() },
+                    onRedo             = { redoLastEdit(); lastInteractionAtMs = System.currentTimeMillis() },
                     onClearPage        = { clearVisiblePage(); lastInteractionAtMs = System.currentTimeMillis() },
                     onSetActiveTool    = { activeTool = it; if (it == PdfEditTool.None) activeImageId = null; selectedAnnoPage = null; selectedAnnoIndex = -1; textSelection.clear() },
                     onToggleFindBar    = {

@@ -3,6 +3,8 @@ package com.chethan616.clearpdf.ui.screen
 import android.content.Intent
 import android.net.Uri
 import android.view.HapticFeedbackConstants
+import com.malhoutha.ui.LocalDevicePosture
+import com.malhoutha.ui.DevicePosture
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -37,10 +39,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material.icons.Icons
@@ -54,6 +58,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.FolderOpen
+import com.chethan616.clearpdf.ui.paper.StartNoteDialog
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Image
@@ -142,6 +147,7 @@ fun HomeScreen(
     onRecentFileSelected: (Uri, String) -> Unit
 ) {
     val homeRecentLimit = 5
+    val posture = LocalDevicePosture.current
     val isDarkMode = LocalIsDarkMode.current
     val isLight = !isDarkMode
     val text = LiquidGlassColors.text(isDarkMode)
@@ -153,6 +159,7 @@ fun HomeScreen(
     val homeScope = rememberCoroutineScope()
 
     var recents by remember { mutableStateOf(RecentFilesManager.getRecents(context)) }
+    var showStartNoteDialog by remember { mutableStateOf(false) }
     var showAllRecents by remember { mutableStateOf(false) }
     var recentQuery by remember { mutableStateOf("") }
     var searchActive by remember { mutableStateOf(false) }
@@ -296,53 +303,88 @@ fun HomeScreen(
                         )
                         Spacer(Modifier.height(20.dp))
 
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            LiquidButton(
-                                onClick = onNavigateToOpenPdf,
-                                backdrop = backdrop,
-                                tint = accent,
-                                modifier = Modifier.weight(1f)
+                        if (posture.isTablet) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp), Color.White)
-                                    BasicText("Open File", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
-                                }
+                                TabletActionCard(
+                                    title = "Open Document",
+                                    subtitle = "Lecture slides & books",
+                                    icon = Icons.Rounded.FolderOpen,
+                                    tint = accent,
+                                    backdrop = backdrop,
+                                    onClick = onNavigateToOpenPdf,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TabletActionCard(
+                                    title = "Start Note",
+                                    subtitle = "Lecture canvas & scratchpad",
+                                    icon = Icons.Rounded.EditNote,
+                                    tint = LiquidGlassColors.Teal,
+                                    backdrop = backdrop,
+                                    onClick = { showStartNoteDialog = true },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TabletActionCard(
+                                    title = stringResource(R.string.home_scan),
+                                    subtitle = "Scan physical handouts",
+                                    icon = Icons.Rounded.Scanner,
+                                    tint = LiquidGlassColors.Green,
+                                    backdrop = backdrop,
+                                    onClick = onNavigateToScan,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
-                            LiquidButton(
-                                onClick = { onStartNote?.invoke() },
-                                backdrop = backdrop,
-                                tint = LiquidGlassColors.Teal,
-                                modifier = Modifier.weight(1f)
+                        } else {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 4.dp)
+                                LiquidButton(
+                                    onClick = onNavigateToOpenPdf,
+                                    backdrop = backdrop,
+                                    tint = accent,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(Icons.Rounded.EditNote, null, Modifier.size(18.dp), Color.White)
-                                    BasicText("Start Note", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp), Color.White)
+                                        BasicText("Open File", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                    }
                                 }
-                            }
-                            LiquidButton(
-                                onClick = onNavigateToScan,
-                                backdrop = backdrop,
-                                tint = LiquidGlassColors.Green,
-                                modifier = Modifier.weight(0.8f)
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 4.dp)
+                                LiquidButton(
+                                    onClick = { showStartNoteDialog = true },
+                                    backdrop = backdrop,
+                                    tint = LiquidGlassColors.Teal,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(Icons.Rounded.Scanner, null, Modifier.size(16.dp), Color.White)
-                                    BasicText(stringResource(R.string.home_scan), style = TextStyle(Color.White, 13.sp, FontWeight.SemiBold))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.EditNote, null, Modifier.size(18.dp), Color.White)
+                                        BasicText("Start Note", style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                                    }
+                                }
+                                LiquidButton(
+                                    onClick = onNavigateToScan,
+                                    backdrop = backdrop,
+                                    tint = LiquidGlassColors.Green,
+                                    modifier = Modifier.weight(0.8f)
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Scanner, null, Modifier.size(16.dp), Color.White)
+                                        BasicText(stringResource(R.string.home_scan), style = TextStyle(Color.White, 13.sp, FontWeight.SemiBold))
+                                    }
                                 }
                             }
                         }
@@ -442,6 +484,43 @@ fun HomeScreen(
                         }
                     }
 
+                    // Direct category tabs for tablet screens
+                    if (posture.isTablet && recents.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        ) {
+                            listOf(
+                                null to "All",
+                                DocKind.Pdf to "PDFs",
+                                DocKind.Word to "Word",
+                                DocKind.Ppt to "Slides",
+                                DocKind.Excel to "Sheets"
+                            ).forEach { (kind, label) ->
+                                val isSelected = recentFilter == kind
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            if (isSelected) accent else if (isLight) Color.Black.copy(0.06f) else Color.White.copy(0.10f)
+                                        )
+                                        .clickable { recentFilter = kind }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    BasicText(
+                                        label,
+                                        style = TextStyle(
+                                            color = if (isSelected) Color.White else text,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if (recents.isEmpty()) {
                         Column(
                             Modifier.fillMaxWidth().padding(vertical = 16.dp),
@@ -466,35 +545,65 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
                             )
                         }
-                        visibleRecents.forEach { recent ->
-                            // `key` on the URI, not the index: a swipe-removed row must take its
-                            // offset animation state with it instead of handing it to its successor.
-                            key(recent.uriString) {
-                                RecentRow(
-                                    recent = recent,
-                                    isLight = isLight,
-                                    textColor = text,
-                                    secondaryColor = sub,
-                                    // Set by the long-press menu's "Remove". When it matches this row,
-                                    // the row plays the same exit as a swipe before it is dropped.
-                                    pendingDelete = pendingDeleteUri == recent.uriString,
-                                    lifted = selectedRecent?.uriString == recent.uriString,
-                                    onClick = { onRecentFileSelected(recent.uri, recent.name) },
-                                    onLongClick = { bounds ->
-                                        selectedRecentBounds = bounds
-                                        menuRecent = recent
-                                        selectedRecent = recent
-                                    },
-                                    onDelete = {
-                                        // Called once the row has finished fading. Drop it from the
-                                        // list (cheap, keyed rows) — the container's animateContentSize
-                                        // springs the gap shut — and persist off the main thread so the
-                                        // terminal relayout never blocks a frame during the exit.
-                                        pendingDeleteUri = null
-                                        recents = recents.filterNot { it.uriString == recent.uriString }
-                                        homeScope.launch(Dispatchers.IO) { RecentFilesManager.removeRecent(context, recent.uri) }
+                        if (posture.isTablet) {
+                            val gridCols = if (posture == DevicePosture.TabletLandscape) 3 else 2
+                            visibleRecents.chunked(gridCols).forEach { rowGroup ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    rowGroup.forEach { recent ->
+                                        RecentDocumentCard(
+                                            recent = recent,
+                                            isLight = isLight,
+                                            textColor = text,
+                                            secondaryColor = sub,
+                                            lifted = selectedRecent?.uriString == recent.uriString,
+                                            onClick = { onRecentFileSelected(recent.uri, recent.name) },
+                                            onLongClick = { bounds ->
+                                                selectedRecentBounds = bounds
+                                                menuRecent = recent
+                                                selectedRecent = recent
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
                                     }
-                                )
+                                    repeat(gridCols - rowGroup.size) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        } else {
+                            visibleRecents.forEach { recent ->
+                                // `key` on the URI, not the index: a swipe-removed row must take its
+                                // offset animation state with it instead of handing it to its successor.
+                                key(recent.uriString) {
+                                    RecentRow(
+                                        recent = recent,
+                                        isLight = isLight,
+                                        textColor = text,
+                                        secondaryColor = sub,
+                                        // Set by the long-press menu's "Remove". When it matches this row,
+                                        // the row plays the same exit as a swipe before it is dropped.
+                                        pendingDelete = pendingDeleteUri == recent.uriString,
+                                        lifted = selectedRecent?.uriString == recent.uriString,
+                                        onClick = { onRecentFileSelected(recent.uri, recent.name) },
+                                        onLongClick = { bounds ->
+                                            selectedRecentBounds = bounds
+                                            menuRecent = recent
+                                            selectedRecent = recent
+                                        },
+                                        onDelete = {
+                                            // Called once the row has finished fading. Drop it from the
+                                            // list (cheap, keyed rows) — the container's animateContentSize
+                                            // springs the gap shut — and persist off the main thread so the
+                                            // terminal relayout never blocks a frame during the exit.
+                                            pendingDeleteUri = null
+                                            recents = recents.filterNot { it.uriString == recent.uriString }
+                                            homeScope.launch(Dispatchers.IO) { RecentFilesManager.removeRecent(context, recent.uri) }
+                                        }
+                                    )
+                                }
                             }
                         }
                         if (!searching && filtered.size > homeRecentLimit && !showAllRecents) {
@@ -753,6 +862,30 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+
+        if (showStartNoteDialog) {
+            StartNoteDialog(
+                backdrop = backdrop,
+                onDismissRequest = { showStartNoteDialog = false },
+                onCreateNote = { title, config, pageCount ->
+                    showStartNoteDialog = false
+                    homeScope.launch {
+                        try {
+                            val outputUri = com.chethan616.clearpdf.ui.paper.NoteCreator.createNote(
+                                context = context,
+                                title = title,
+                                config = config,
+                                pageCount = pageCount
+                            )
+                            recents = RecentFilesManager.getRecents(context)
+                            onRecentFileSelected(outputUri, title)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            )
         }
     }
 }
@@ -1159,3 +1292,164 @@ private fun kindVisual(kind: DocKind): Triple<ImageVector, Color, String> = when
     DocKind.Image -> Triple(Icons.Rounded.Image,        Color(0xFF8E5AF2), "IMG")
     DocKind.Other -> Triple(Icons.Rounded.Description,  Color(0xFF8E8E93), "FILE")
 }
+
+@Composable
+private fun TabletActionCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    tint: Color,
+    backdrop: LayerBackdrop,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f),
+        label = "tabletActionCardScale"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+            .clip(RoundedCornerShape(20.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(tint),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            BasicText(
+                title,
+                style = TextStyle(color = tint, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            )
+            BasicText(
+                subtitle,
+                style = TextStyle(color = tint.copy(alpha = 0.75f), fontSize = 12.sp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentDocumentCard(
+    recent: com.chethan616.clearpdf.data.repository.RecentFile,
+    isLight: Boolean,
+    textColor: Color,
+    secondaryColor: Color,
+    lifted: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (bounds: androidx.compose.ui.geometry.Rect) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = when {
+            lifted -> 1.03f
+            isPressed -> 0.97f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.6f),
+        label = "recentCardScale"
+    )
+    var currentBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    val (kIcon, kColor, kLabel) = kindVisual(docKindOf(recent.name))
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isLight) Color.White.copy(0.75f) else Color(0xFF222630).copy(0.80f))
+            .onGloballyPositioned {
+                val pos = it.localToRoot(androidx.compose.ui.geometry.Offset.Zero)
+                currentBounds = androidx.compose.ui.geometry.Rect(pos, androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat()))
+            }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = { onLongClick(currentBounds) }
+            )
+            .padding(14.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(kColor.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(kIcon, contentDescription = null, tint = kColor, modifier = Modifier.size(19.dp))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (recent.pinned) {
+                        Icon(
+                            painterResource(R.drawable.ic_pinned_badge),
+                            contentDescription = "Pinned",
+                            tint = Color(0xFFFF9500),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(kColor.copy(0.12f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        BasicText(kLabel, style = TextStyle(kColor, 9.sp, FontWeight.Bold))
+                    }
+                }
+            }
+
+            BasicText(
+                recent.name,
+                style = TextStyle(color = textColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.heightIn(min = 36.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicText(
+                    formatTimestamp(recent.timestamp),
+                    style = TextStyle(color = secondaryColor.copy(0.8f), fontSize = 11.sp)
+                )
+                if (recent.sizeBytes > 0) {
+                    BasicText(
+                        formatFileSize(recent.sizeBytes),
+                        style = TextStyle(color = secondaryColor.copy(0.8f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    )
+                }
+            }
+        }
+    }
+}
+

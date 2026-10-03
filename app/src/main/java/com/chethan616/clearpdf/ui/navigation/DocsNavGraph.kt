@@ -341,7 +341,6 @@ fun DocsNavGraph(
 
         composable(ROUTE_HOME) {
             val homeContext = LocalContext.current
-            val homeScope = androidx.compose.runtime.rememberCoroutineScope()
             // Open picker that routes by document kind (spreadsheets → grid viewer, else PDF viewer).
             val openDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) {
@@ -360,39 +359,8 @@ fun DocsNavGraph(
                 onNavigateToScan = {
                     navController.navigate(ROUTE_SCAN) { launchSingleTop = true }
                 },
-                onStartNote = {
-                    homeScope.launch {
-                        try {
-                            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-                            val fileName = "Note_$timeStamp.pdf"
-                            val values = android.content.ContentValues().apply {
-                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-                            }
-                            val outputUri = homeContext.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                            if (outputUri != null) {
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    com.chethan616.clearpdf.data.repository.PdfServiceLocator.pdfCreator.createBlank(homeContext, 3, outputUri)
-                                }
-                                com.chethan616.clearpdf.data.repository.RecentFilesManager.addRecent(
-                                    homeContext,
-                                    com.chethan616.clearpdf.data.repository.RecentFile(
-                                        name = fileName,
-                                        uriString = outputUri.toString(),
-                                        timestamp = System.currentTimeMillis()
-                                    )
-                                )
-                                navController.navigateToPdfViewer(outputUri)
-                            } else {
-                                navController.navigate(ROUTE_CREATE) { launchSingleTop = true }
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            navController.navigate(ROUTE_CREATE) { launchSingleTop = true }
-                        }
-                    }
-                },
+                onStartNote = null,
+
                 onRecentFileSelected = { uri, name ->
                     // Route by document kind: spreadsheets open in the interactive grid viewer,
                     // everything else in the PDF viewer. The name comes from the recents entry
