@@ -78,6 +78,8 @@ import androidx.compose.ui.text.AnnotatedString
 import com.malhoutha.R
 import com.chethan616.clearpdf.ui.selection.PdfTextSelectionState
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
@@ -134,9 +136,9 @@ internal fun PdfContinuousPage(
     /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain). Infinitely sharp at any zoom. */
     paperConfig: PaperConfig? = null
 ) {
-    var draftPoints    by remember(page, activeTool) { mutableStateOf<List<Offset>>(emptyList()) }
-    var draftRectStart by remember(page, activeTool) { mutableStateOf<Offset?>(null) }
-    var draftRectEnd   by remember(page, activeTool) { mutableStateOf<Offset?>(null) }
+    val inFlightState = remember(page) { InFlightInkState() }
+    val hostView = LocalView.current
+    val pendingHandoffClear = remember(page) { AtomicReference<(() -> Unit)?>(null) }
     val selectionColors = LocalTextSelectionColors.current
     DisposableEffect(page, textSelection) { onDispose { textSelection.unregisterPage(page, null) } }
     // Accessibility: expose the page's extracted text to TalkBack, plus a "select page text" action.
@@ -360,23 +362,6 @@ internal fun PdfContinuousPage(
                     }
             }
 
-            // In-progress drafts
-            if (draftPoints.size > 1) {
-                val isHl = activeTool == PdfEditTool.Highlight
-                drawPath(smoothPath(draftPoints), currentColor.copy(if (isHl) 0.32f else 0.95f),
-                    style = Stroke(if (isHl) currentStrokeWidth * 3.5f else currentStrokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            }
-            if (draftRectStart != null && draftRectEnd != null) {
-                val s = draftRectStart!!; val e = draftRectEnd!!
-                val pr = Rect(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
-                when (activeTool) {
-                    PdfEditTool.Rect    -> drawRect(Color(0xFF42A5F5), pr.topLeft, pr.size, style = Stroke(3f))
-                    PdfEditTool.Ellipse -> drawOval(Color(0xFF26A69A), pr.topLeft, pr.size, style = Stroke(3f))
-                    PdfEditTool.Line    -> drawLine(Color(0xFF66BB6A), s, e, 4f)
-                    PdfEditTool.Arrow   -> drawArrow(s, e, Color(0xFFEF5350), 4f)
-                    else -> Unit
-                }
-            }
             if (showFindBar && findMatches.isNotEmpty()) {
                 val activeMatch = findMatches.getOrNull(currentMatchIndex)
                 findMatches.filter { it.pageIndex == page }.forEach { match ->
@@ -410,6 +395,15 @@ internal fun PdfContinuousPage(
                         drawRoundRect(Color(0xFF60A5FA).copy(0.42f), hl.topLeft, hl.size, CornerRadius(cr, cr))
                     }
                 }
+            }
+
+            // Two-Phase Handoff Synchronization:
+            // Compose has now completed drawing the committed mark into its display list.
+            // Post the front-buffer clearance to the host view message queue so it executes
+            // on the next frame immediately after this RenderNode is presented.
+            val clearAction = pendingHandoffClear.getAndSet(null)
+            if (clearAction != null) {
+                hostView.post { clearAction.invoke() }
             }
         }
 
@@ -507,53 +501,54 @@ internal fun PdfContinuousPage(
         }
 
         if (drawingToolActive) {
-            // NOTE: currentColor/currentStrokeWidth are part of the key so the gesture
-            // detector restarts and re-captures them whenever they change. Without this
-            // the onDragEnd closure keeps the color/width captured when the tool was first
-            // selected — so changing color mid-tool wouldn't apply until you switched tools.
-            Box(Modifier.matchParentSize().pointerInput(page, activeTool, currentColor, currentStrokeWidth) {
-                val freehand = activeTool == PdfEditTool.Draw || activeTool == PdfEditTool.Highlight
-                detectDragGestures(
-                    onDragStart = { p -> onInteraction(); if (freehand) draftPoints = listOf(p) else { draftRectStart = p; draftRectEnd = p } },
-                    onDrag = { ch, _ -> ch.consume(); if (freehand) draftPoints = draftPoints + ch.position else draftRectEnd = ch.position },
-                    onDragCancel = { draftPoints = emptyList(); draftRectStart = null; draftRectEnd = null },
-                    onDragEnd = {
-                        val before = marks.size
-                        when (activeTool) {
-                            PdfEditTool.Draw      -> if (draftPoints.size > 1) marks.add(PdfMarkup.StrokeMarkup(draftPoints, currentColor, currentStrokeWidth, 0.95f))
-                            PdfEditTool.Highlight -> if (draftPoints.size > 1) marks.add(PdfMarkup.StrokeMarkup(draftPoints, currentColor, currentStrokeWidth * 3.5f, 0.32f))
-                            PdfEditTool.Rect      -> draftRectStart?.let { s -> draftRectEnd?.let { e -> marks.add(PdfMarkup.RectMarkup(s, e, currentColor, 1f, false)) } }
-                            PdfEditTool.Ellipse   -> draftRectStart?.let { s -> draftRectEnd?.let { e -> marks.add(PdfMarkup.OvalMarkup(s, e, currentColor, 1f, false)) } }
-                            PdfEditTool.Line      -> draftRectStart?.let { s -> draftRectEnd?.let { e -> marks.add(PdfMarkup.LineMarkup(s, e, currentColor, currentStrokeWidth, 1f, false)) } }
-                            PdfEditTool.Arrow     -> draftRectStart?.let { s -> draftRectEnd?.let { e -> marks.add(PdfMarkup.LineMarkup(s, e, currentColor, currentStrokeWidth, 1f, true)) } }
-                            else -> Unit
-                        }
-                        // Every branch above is conditional (a tap with <2 points adds nothing), so
-                        // compare sizes rather than assuming the drag produced a mark.
-                        if (marks.size > before) onMarkAdded()
-                        draftPoints = emptyList(); draftRectStart = null; draftRectEnd = null
-                    }
-                )
-            })
+            HardwareInkingSurface(
+                modifier = Modifier.matchParentSize(),
+                state = inFlightState,
+                page = page,
+                activeTool = activeTool,
+                currentColor = currentColor,
+                currentStrokeWidth = currentStrokeWidth,
+                onInteraction = onInteraction,
+                onStrokeCommitted = { newMarkup, onDrawn ->
+                    pendingHandoffClear.set(onDrawn)
+                    marks.add(newMarkup)
+                    onMarkAdded()
+                }
+            )
         }
 
         if (activeTool == PdfEditTool.Eraser) {
             Box(Modifier.matchParentSize().pointerInput(page) {
-                detectTapGestures {
-                    p ->
+                detectTapGestures { p ->
                     val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
                     val idx = marks.indexOfLast { it.hitTest(p, ocrBlocks, frame) }
                     if (idx >= 0) marks.removeAt(idx)
                     onInteraction()
                 }
             }.pointerInput(page) {
-                detectDragGestures(onDrag = { ch, _ ->
-                    ch.consume()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
-                    val idx = marks.indexOfLast { it.hitTest(ch.position, ocrBlocks, frame) }
+                    val idx = marks.indexOfLast { it.hitTest(down.position, ocrBlocks, frame) }
                     if (idx >= 0) marks.removeAt(idx)
                     onInteraction()
-                })
+                    val pointerId = down.id
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                        if (change == null || !change.pressed) break
+                        change.consume()
+                        val batched = extractDigitizerBatchPoints(change, event)
+                        for (i in 0 until batched.size) {
+                            val bIdx = marks.indexOfLast { it.hitTest(batched[i], ocrBlocks, frame) }
+                            if (bIdx >= 0) marks.removeAt(bIdx)
+                        }
+                        val cIdx = marks.indexOfLast { it.hitTest(change.position, ocrBlocks, frame) }
+                        if (cIdx >= 0) marks.removeAt(cIdx)
+                        onInteraction()
+                    }
+                }
             })
         }
 

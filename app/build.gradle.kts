@@ -167,6 +167,8 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.input.motionprediction)
+    implementation(libs.androidx.graphics.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(project(":backdrop"))
     implementation(project(":pdf-core"))

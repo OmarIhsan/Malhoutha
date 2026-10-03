@@ -26,6 +26,8 @@ mlkitSubjectSegmentation = "16.0.0-beta1"
 playFeatureDelivery = "2.1.0"
 work = "2.10.1"
 xz = "1.10"
+motionPrediction = "1.0.0"
+graphicsCore = "1.0.4"
 
 [libraries]
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
@@ -42,6 +44,8 @@ pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-input-motionprediction = { group = "androidx.input", name = "input-motionprediction", version.ref = "motionPrediction" }
+androidx-graphics-core = { group = "androidx.graphics", name = "graphics-core", version.ref = "graphicsCore" }
 
 # Image editor (ImageToolbox-derived; see THIRD_PARTY_NOTICES.md)
 gpuimage = { group = "jp.co.cyberagent.android", name = "gpuimage", version.ref = "gpuimage" }
