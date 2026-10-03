@@ -23,11 +23,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.material.icons.rounded.EditNote
 import com.malhoutha.ui.LocalDevicePosture
 import com.malhoutha.ui.DevicePosture
-import com.malhoutha.ui.gutter.GutterNotePanel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -207,7 +204,6 @@ fun PdfViewerScreen(
     // panning is still allowed inside a zoomed page (handled in PdfContinuousPage).
     val scrollOrientation = ScrollOrientation.Vertical
     val posture = LocalDevicePosture.current
-    var isGutterOpen by rememberSaveable { mutableStateOf(false) }
     var showPageJumpDialog  by rememberSaveable { mutableStateOf(false) }
     var activeTool          by rememberSaveable { mutableStateOf(PdfEditTool.None) }
     var currentColorLong    by rememberSaveable { mutableLongStateOf(0xFF00BCD4L) }
@@ -958,20 +954,15 @@ fun PdfViewerScreen(
             ) {
                 val extraBottomPadding = if (scale > 1f && containerHeightPx > 0)
                     with(LocalDensity.current) { (containerHeightPx * ((scale - 1f) / scale)).toDp() } else 0.dp
-
-                val showGutter = posture.supportsSideGutter && isGutterOpen
-
-                Row(Modifier.fillMaxSize()) {
-                    Box(
-                        Modifier
-                            .weight(if (showGutter) 0.72f else 1f)
-                            .fillMaxHeight()
-                            .graphicsLayer {
-                                scaleX = scale; scaleY = scale
-                                translationX = offsetX; translationY = 0f
-                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                            }.onGloballyPositioned { textSelection.registerLayer(it) }
-                    ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale; scaleY = scale
+                            translationX = offsetX; translationY = 0f
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        }.onGloballyPositioned { textSelection.registerLayer(it) }
+                ) {
                     LazyColumn(
                         state = listState,
                         flingBehavior = pageFling,
@@ -1059,17 +1050,6 @@ fun PdfViewerScreen(
                                 paperConfig = state.paperConfig
                             )
                         }
-                    }
-                }
-
-                if (showGutter) {
-                    GutterNotePanel(
-                        backdrop = contentBackdrop,
-                        onClose = { isGutterOpen = false },
-                        modifier = Modifier
-                            .weight(0.28f)
-                            .fillMaxHeight()
-                    )
                 }
             }
             }
@@ -1166,20 +1146,7 @@ fun PdfViewerScreen(
                             animateIn = false
                         )
                     }
-                    if (posture.supportsSideGutter) {
-                        LiquidIconButton(
-                            onClick = { isGutterOpen = !isGutterOpen },
-                            backdrop = contentBackdrop,
-                            surfaceColor = if (isGutterOpen) LiquidGlassColors.Teal.copy(alpha = 0.9f) else Color.Transparent
-                        ) {
-                            Icon(
-                                Icons.Rounded.EditNote,
-                                contentDescription = "Margin Notes Gutter",
-                                modifier = Modifier.size(20.dp),
-                                tint = if (isGutterOpen) Color.White else topFg
-                            )
-                        }
-                    }
+
                     LiquidIconButton(
                         onClick = {
                             showFindBar = !showFindBar
