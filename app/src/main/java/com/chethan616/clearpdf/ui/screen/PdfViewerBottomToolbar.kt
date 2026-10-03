@@ -36,20 +36,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.TrendingFlat
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.automirrored.rounded.ViewSidebar
+import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.AutoFixNormal
+import androidx.compose.material.icons.rounded.BorderColor
+import androidx.compose.material.icons.rounded.ChangeHistory
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CropSquare
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Draw
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Flare
 import androidx.compose.material.icons.rounded.Gesture
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.PanTool
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.StickyNote2
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +74,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -72,23 +84,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.chethan616.clearpdf.ui.components.GlassColorPicker
 import com.chethan616.clearpdf.ui.components.LiquidButton
 import com.chethan616.clearpdf.ui.components.LiquidIconButton
 import com.chethan616.clearpdf.ui.components.carouselEdges
 import com.chethan616.clearpdf.ui.components.viewerGlass
 import com.chethan616.clearpdf.ui.utils.UISensor
 import com.chethan616.clearpdf.utils.DocKind
+import com.chethan616.clearpdf.data.repository.ToolbarOrientation
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.malhoutha.R
 import com.malhoutha.ui.LocalDevicePosture
 import kotlin.math.roundToInt
 
-/**
- * Curated 3-slot Academic Inking Palette for Zero-Tap color switching:
- * - Carbon Black: Primary lecture notation and formulas (#1A1A1E)
- * - Academic Blue: Sub-headers, theorem definitions, diagrams (#1976D2)
- * - Alert Crimson: Exam alerts, urgent corrections, deadlines (#D32F2F)
- */
+internal data class QuickPickSwatch(
+    val hex: Long,
+    val color: Color,
+    val label: String
+)
+
+internal object QuickPalette {
+    val Swatches = listOf(
+        QuickPickSwatch(0xFF1A1A1EL, Color(0xFF1A1A1E), "Charcoal Black"),
+        QuickPickSwatch(0xFF1E88E5L, Color(0xFF1E88E5), "Royal Blue"),
+        QuickPickSwatch(0xFFE53935L, Color(0xFFE53935), "Vibrant Red"),
+        QuickPickSwatch(0xFF43A047L, Color(0xFF43A047), "Emerald Green"),
+        QuickPickSwatch(0xFFFDD835L, Color(0xFFFDD835), "Amber Yellow")
+    )
+}
+
 object AcademicPalette {
     const val CarbonBlackHex = 0xFF1A1A1EL
     const val AcademicBlueHex = 0xFF1976D2L
@@ -142,12 +168,14 @@ object AcademicPalette {
 internal fun PdfViewerBottomToolbar(
     // Display state
     activeTool: PdfEditTool,
+    activeShapeMode: InkShapeMode = InkShapeMode.Free,
     drawingToolActive: Boolean,
     showFindBar: Boolean,
     showSignaturePad: Boolean,
     activeImageId: Long?,
     currentColor: Color,
     currentColorLong: Long,
+    recentColors: List<Color> = DefaultRecentColors,
     currentStrokeWidth: Float,
     zoomScale: Float,
     hasEdits: Boolean,
@@ -163,6 +191,7 @@ internal fun PdfViewerBottomToolbar(
     onRedo: () -> Unit = {},
     onClearPage: () -> Unit,
     onSetActiveTool: (PdfEditTool) -> Unit,
+    onSetShapeMode: (InkShapeMode) -> Unit = {},
     onToggleFindBar: () -> Unit,
     onShowSignaturePad: () -> Unit,
     onPickImage: () -> Unit,
@@ -186,11 +215,22 @@ internal fun PdfViewerBottomToolbar(
     fgSoft: Color,
     glass: Color,
     chip: Color,
-    docKind: DocKind = DocKind.Pdf
+    docKind: DocKind = DocKind.Pdf,
+    toolbarOrientation: ToolbarOrientation = ToolbarOrientation.Horizontal,
+    onToggleToolbarOrientation: (() -> Unit)? = null
 ) {
     val posture = LocalDevicePosture.current
-    val isVertical = posture.useLateralDock
+    val isVertical = toolbarOrientation == ToolbarOrientation.Vertical
     val haptic = LocalHapticFeedback.current
+
+    // Repositioning drag offsets (confined exclusively to the drag handle)
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isVertical) {
+        dragOffsetY = 0f
+        dragOffsetX = 0f
+    }
 
     // Spring physics configuration
     val springSpec = remember {
@@ -228,33 +268,40 @@ internal fun PdfViewerBottomToolbar(
     }
 
     val accent = Color(0xFF1976D2)
-    var toolsFlyoutOpen by rememberSaveable { mutableStateOf(false) }
+    var showColorPicker by rememberSaveable { mutableStateOf(false) }
 
-    // Repositioning drag offsets (confined exclusively to the drag handle)
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    val shapeTools = remember {
+        setOf(PdfEditTool.Rect, PdfEditTool.Ellipse, PdfEditTool.Line, PdfEditTool.Arrow, PdfEditTool.Triangle)
+    }
 
     // Active tool states
     val pointerActive = activeTool == PdfEditTool.None && !drawingToolActive
-    val penActive = drawingToolActive && activeTool == PdfEditTool.Draw
+    val penActive = drawingToolActive && (activeTool == PdfEditTool.Draw || activeTool in shapeTools)
     val hlActive = activeTool == PdfEditTool.Highlight
     val eraserActive = activeTool == PdfEditTool.Eraser
+    val laserActive = activeTool == PdfEditTool.Laser
+    val textActive = activeTool == PdfEditTool.Text
+    val stickyNoteActive = activeTool == PdfEditTool.StickyNote
+    val imageActive = activeTool == PdfEditTool.Image
+    val signatureActive = activeTool == PdfEditTool.Signature || showSignaturePad
 
     // Animated scales for spring selection physics
     val pointerScale by animateFloatAsState(if (pointerActive) 1.10f else 1.0f, springSpec, label = "pointerScale")
     val penScale by animateFloatAsState(if (penActive) 1.10f else 1.0f, springSpec, label = "penScale")
     val hlScale by animateFloatAsState(if (hlActive) 1.10f else 1.0f, springSpec, label = "hlScale")
     val eraserScale by animateFloatAsState(if (eraserActive) 1.10f else 1.0f, springSpec, label = "eraserScale")
-    val moreScale by animateFloatAsState(if (toolsFlyoutOpen) 1.10f else 1.0f, springSpec, label = "moreScale")
+    val laserScale by animateFloatAsState(if (laserActive) 1.10f else 1.0f, springSpec, label = "laserScale")
+    val textScale by animateFloatAsState(if (textActive) 1.10f else 1.0f, springSpec, label = "textScale")
+    val stickyNoteScale by animateFloatAsState(if (stickyNoteActive) 1.10f else 1.0f, springSpec, label = "stickyNoteScale")
+    val imageScale by animateFloatAsState(if (imageActive) 1.10f else 1.0f, springSpec, label = "imageScale")
+    val signatureScale by animateFloatAsState(if (signatureActive) 1.10f else 1.0f, springSpec, label = "signatureScale")
 
     val buttonSize = if (isVertical) 40.dp else 36.dp
     val iconSize = if (isVertical) 20.dp else 18.dp
-    val swatchTouchSize = if (isVertical) 36.dp else 32.dp
-    val swatchDiscSize = if (isVertical) 22.dp else 19.dp
 
     // ── Primary Tool Capsule Content ───────────────────────────────────────────
     val capsuleContent: @Composable () -> Unit = {
-        // 1. Drag Handle
+        // Drag Handle
         DockDragHandle(
             isVertical = isVertical,
             isDark = isDarkSubstrate,
@@ -270,7 +317,7 @@ internal fun PdfViewerBottomToolbar(
             }
         )
 
-        // 2. Navigation / Pointer (Hand icon)
+        // 1. Browse / Hand
         Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(pointerScale)) {
             LiquidIconButton(
                 onClick = {
@@ -291,8 +338,7 @@ internal fun PdfViewerBottomToolbar(
             }
         }
 
-        // 3. Primary Inking Tools:
-        // A. Pen with live color tip indicator
+        // 2. Draw / Pen (with live color tip indicator)
         Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(penScale)) {
             LiquidIconButton(
                 onClick = {
@@ -325,7 +371,7 @@ internal fun PdfViewerBottomToolbar(
             }
         }
 
-        // B. Highlighter
+        // 3. Highlighter
         val hlColor = Color(0xFFF9A825)
         Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(hlScale)) {
             LiquidIconButton(
@@ -339,7 +385,7 @@ internal fun PdfViewerBottomToolbar(
                 modifier = Modifier.size(buttonSize)
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Brush,
+                    imageVector = Icons.Rounded.BorderColor,
                     contentDescription = "Highlighter",
                     tint = if (hlActive) Color.White else fg,
                     modifier = Modifier.size(iconSize)
@@ -347,7 +393,7 @@ internal fun PdfViewerBottomToolbar(
             }
         }
 
-        // C. Eraser
+        // 4. Eraser
         val eraserColor = Color(0xFFC62828)
         Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(eraserScale)) {
             LiquidIconButton(
@@ -361,7 +407,7 @@ internal fun PdfViewerBottomToolbar(
                 modifier = Modifier.size(buttonSize)
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
+                    imageVector = Icons.Rounded.AutoFixNormal,
                     contentDescription = "Eraser",
                     tint = if (eraserActive) Color.White else fg,
                     modifier = Modifier.size(iconSize)
@@ -369,101 +415,121 @@ internal fun PdfViewerBottomToolbar(
             }
         }
 
-        // 4. Hairline Divider
-        DockHairlineDivider(isVertical = isVertical, fg = fg)
-
-        // 5. Zero-Tap Academic Color Well (Black, Blue, Crimson)
-        val colorWellContent = @Composable {
-            AcademicPalette.Swatches.forEach { (colorHex, colorVal, name) ->
-                val isSelected = currentColorLong == colorHex
-                val swatchScale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.20f else 1.0f,
-                    animationSpec = springSpec,
-                    label = "swatchScale_$name"
+        // 5. Laser Pointer (Ephemeral Presentation Tool)
+        val laserColor = Color(0xFFFF1744)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(laserScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (laserActive) PdfEditTool.None else PdfEditTool.Laser)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (laserActive) laserColor.copy(alpha = 0.95f) else chip,
+                tint = if (laserActive) laserColor else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Flare,
+                    contentDescription = "Laser Pointer",
+                    tint = if (laserActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
                 )
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(swatchTouchSize)
-                        .clip(CircleShape)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSetColorLong(colorHex)
-                            if (!penActive) {
-                                onSetActiveTool(PdfEditTool.Draw)
-                            }
-                        }
-                ) {
-                    // High-contrast outer selection ring
-                    if (isSelected) {
-                        Box(
-                            modifier = Modifier
-                                .size(swatchTouchSize - 4.dp)
-                                .border(
-                                    width = 2.dp,
-                                    color = if (isDarkSubstrate) Color.White else Color(0xFF1976D2),
-                                    shape = CircleShape
-                                )
-                        )
-                    }
-
-                    // Visual color disk
-                    val checkmarkTint = if (colorVal.luminance() > 0.5f) Color.Black else Color.White
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .scale(swatchScale)
-                            .size(swatchDiscSize)
-                            .clip(CircleShape)
-                            .background(colorVal)
-                            .border(
-                                width = 1.dp,
-                                color = if (colorVal.luminance() > 0.85f) Color.Gray.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.35f),
-                                shape = CircleShape
-                            )
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = "Active color $name",
-                                tint = checkmarkTint,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-                    }
-                }
             }
         }
 
-        if (isVertical) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(fg.copy(alpha = 0.06f))
-                    .padding(vertical = 4.dp, horizontal = 2.dp)
+        // 6. Text Box
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(textScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (textActive) PdfEditTool.None else PdfEditTool.Text)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (textActive) accent.copy(alpha = 0.95f) else chip,
+                tint = if (textActive) accent else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
             ) {
-                colorWellContent()
-            }
-        } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(fg.copy(alpha = 0.06f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                colorWellContent()
+                Icon(
+                    imageVector = Icons.Rounded.TextFields,
+                    contentDescription = "Text Box",
+                    tint = if (textActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
             }
         }
 
-        // 6. Hairline Divider
+        // 6b. Sticky Note (Post-it Card Tool)
+        val noteColor = Color(0xFFFBC02D)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(stickyNoteScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSetActiveTool(if (stickyNoteActive) PdfEditTool.None else PdfEditTool.StickyNote)
+                },
+                backdrop = backdrop,
+                surfaceColor = if (stickyNoteActive) noteColor.copy(alpha = 0.95f) else chip,
+                tint = if (stickyNoteActive) noteColor else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.StickyNote2,
+                    contentDescription = "Sticky Note",
+                    tint = if (stickyNoteActive) Color.Black else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+
+        // 6. Image / Photo
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(imageScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (imageActive) {
+                        onSetActiveTool(PdfEditTool.None)
+                    } else {
+                        onPickImage()
+                    }
+                },
+                backdrop = backdrop,
+                surfaceColor = if (imageActive) accent.copy(alpha = 0.95f) else chip,
+                tint = if (imageActive) accent else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Image,
+                    contentDescription = "Insert Image",
+                    tint = if (imageActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+
+        // 7. Signature
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(signatureScale)) {
+            LiquidIconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onShowSignaturePad()
+                },
+                backdrop = backdrop,
+                surfaceColor = if (signatureActive) accent.copy(alpha = 0.95f) else chip,
+                tint = if (signatureActive) accent else Color.Unspecified,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Draw,
+                    contentDescription = "Signature",
+                    tint = if (signatureActive) Color.White else fg,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+
+        // 8. Separator
         DockHairlineDivider(isVertical = isVertical, fg = fg)
 
-        // 7. History Controls: Undo & Redo
+        // 9. Undo
         LiquidIconButton(
             onClick = {
                 if (canUndo) {
@@ -483,6 +549,7 @@ internal fun PdfViewerBottomToolbar(
             )
         }
 
+        // 10. Redo
         LiquidIconButton(
             onClick = {
                 if (canRedo) {
@@ -502,200 +569,515 @@ internal fun PdfViewerBottomToolbar(
             )
         }
 
-        // 8. Hairline Divider & Secondary Tools Toggle
-        DockHairlineDivider(isVertical = isVertical, fg = fg)
+        // 11. Dock Orientation Toggle (Horizontal Bottom Bar <-> Vertical Lateral Dock)
+        if (onToggleToolbarOrientation != null) {
+            DockHairlineDivider(isVertical = isVertical, fg = fg)
 
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.scale(moreScale)) {
             LiquidIconButton(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    toolsFlyoutOpen = !toolsFlyoutOpen
+                    onToggleToolbarOrientation()
                 },
                 backdrop = backdrop,
-                surfaceColor = if (toolsFlyoutOpen) accent.copy(alpha = 0.90f) else chip,
-                tint = if (toolsFlyoutOpen) accent else Color.Unspecified,
+                surfaceColor = chip,
                 modifier = Modifier.size(buttonSize)
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Apps,
-                    contentDescription = "More Tools",
-                    tint = if (toolsFlyoutOpen) Color.White else fg,
+                    imageVector = if (isVertical) Icons.Rounded.ViewAgenda else Icons.AutoMirrored.Rounded.ViewSidebar,
+                    contentDescription = if (isVertical) "Switch to horizontal bottom dock" else "Switch to vertical side dock",
+                    tint = fg.copy(alpha = 0.9f),
                     modifier = Modifier.size(iconSize)
                 )
             }
         }
     }
 
-    // ── Secondary Flyout Shelf Content (Stroke Presets, Clear, Shapes/Image/Sign/Find) ────
+    // ── Secondary Flyout Shelf Content (Shapes Cluster | Thickness Cluster | Color Swatches Cluster) ────
+    val shapeItems = remember {
+        listOf(
+            InkShapeMode.Free to (Icons.Rounded.Gesture to "Free Write"),
+            InkShapeMode.Arrow to (Icons.AutoMirrored.Rounded.TrendingFlat to "Line / Arrow"),
+            InkShapeMode.Rectangle to (Icons.Rounded.CropSquare to "Rectangle"),
+            InkShapeMode.Circle to (Icons.Rounded.RadioButtonUnchecked to "Circle / Oval"),
+            InkShapeMode.Triangle to (Icons.Rounded.ChangeHistory to "Triangle")
+        )
+    }
+
+    val thicknessItems = remember {
+        listOf(
+            Triple(3f, 3.dp, "Fine (1.5dp)"),
+            Triple(6f, 6.dp, "Medium (3.0dp)"),
+            Triple(11f, 10.dp, "Bold (6.0dp)")
+        )
+    }
+
+    val rainbowBrush = remember {
+        Brush.sweepGradient(
+            listOf(
+                Color(0xFFFF0000),
+                Color(0xFFFFEE00),
+                Color(0xFF00FF00),
+                Color(0xFF00EEFF),
+                Color(0xFF0000FF),
+                Color(0xFFFF00FF),
+                Color(0xFFFF0000)
+            )
+        )
+    }
+
     val secondaryShelfContent: @Composable (isVerticalLayout: Boolean) -> Unit = { isVert ->
-        if (isVert) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
-            ) {
-                if (drawingToolActive) {
-                    listOf(3f to "Fine", 6f to "Medium", 11f to "Bold").forEach { (width, label) ->
-                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
-                        LiquidButton(
-                            onClick = { onSetStrokeWidth(width) },
-                            backdrop = backdrop,
-                            surfaceColor = if (isSelected) accent.copy(alpha = 0.9f) else chip,
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            BasicText(
-                                label,
-                                style = TextStyle(
-                                    color = if (isSelected) Color.White else fg,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        val isRecentColorSelected = recentColors.any { it.toArgb() == currentColor.toArgb() }
+
+        val colorClusterContent: @Composable () -> Unit = {
+            recentColors.forEachIndexed { index, swatchColor ->
+                val isSelected = currentColor.toArgb() == swatchColor.toArgb()
+                val swatchScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.15f else 1.0f,
+                    animationSpec = springSpec,
+                    label = "recentSwatchScale_$index"
+                )
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(if (isVert) 30.dp else 28.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val hex = swatchColor.toArgb().toLong() and 0xFFFFFFFFL
+                            onSetColorLong(hex)
+                            if (!penActive && !hlActive) {
+                                onSetActiveTool(PdfEditTool.Draw)
+                            }
+                        }
+                ) {
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .size(if (isVert) 28.dp else 26.dp)
+                                .border(
+                                    width = 2.dp,
+                                    color = if (isDarkSubstrate) Color.White else Color(0xFF1976D2),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .scale(swatchScale)
+                            .size(if (isVert) 20.dp else 18.dp)
+                            .clip(CircleShape)
+                            .background(swatchColor)
+                            .border(
+                                width = 1.dp,
+                                color = if (swatchColor.luminance() > 0.85f) Color.Gray.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.35f),
+                                shape = CircleShape
+                            )
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Active color $index",
+                                tint = if (swatchColor.luminance() > 0.5f) Color.Black else Color.White,
+                                modifier = Modifier.size(11.dp)
                             )
                         }
                     }
-                    Box(Modifier.width(24.dp).height(1.dp).background(fg.copy(0.12f)))
-                    LiquidIconButton(
-                        onClick = onClearPage,
-                        backdrop = backdrop,
-                        surfaceColor = chip,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(Icons.Rounded.Delete, "Clear Page", Modifier.size(16.dp), fg)
+                }
+            }
+
+            // Custom color picker circle button
+            val isCustomActive = !isRecentColorSelected
+            val customScale by animateFloatAsState(
+                targetValue = if (isCustomActive) 1.15f else 1.0f,
+                animationSpec = springSpec,
+                label = "customColorScale"
+            )
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(if (isVert) 30.dp else 28.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        showColorPicker = true
+                    }
+            ) {
+                if (isCustomActive) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (isVert) 28.dp else 26.dp)
+                            .border(
+                                width = 2.dp,
+                                color = if (isDarkSubstrate) Color.White else Color(0xFF1976D2),
+                                shape = CircleShape
+                            )
+                    )
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .scale(customScale)
+                        .size(if (isVert) 20.dp else 18.dp)
+                        .clip(CircleShape)
+                        .background(if (isCustomActive) currentColor else Color.Transparent)
+                        .border(
+                            width = 2.dp,
+                            brush = rainbowBrush,
+                            shape = CircleShape
+                        )
+                ) {
+                    if (isCustomActive) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "Custom Color Active",
+                            tint = if (currentColor.luminance() > 0.5f) Color.Black else Color.White,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (isVert) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.padding(vertical = 8.dp, horizontal = 5.dp)
+            ) {
+                // ── Cluster 1: Shape Geometries (InkShapeMode) ──
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(2.dp)
+                ) {
+                    shapeItems.forEach { (mode, pair) ->
+                        val (icon, label) = pair
+                        val isSelected = activeShapeMode == mode && (penActive || hlActive)
+                        val btnScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.08f else 1.0f,
+                            animationSpec = springSpec,
+                            label = "shapeScale_vert_${mode.name}"
+                        )
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .scale(btnScale)
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .then(
+                                    if (isSelected) {
+                                        Modifier
+                                            .background(accent.copy(alpha = 0.92f))
+                                            .border(0.75.dp, specularHighlight, RoundedCornerShape(9.dp))
+                                    } else Modifier
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSetShapeMode(mode)
+                                }
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) Color.White else fg.copy(alpha = 0.78f),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
                 }
 
-                LiquidIconButton(
-                    onClick = onShowSignaturePad,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Rounded.Gesture, "Signature", Modifier.size(16.dp), fg)
-                }
+                // ── Divider: Subtle horizontal separator (16dp width, 1dp height) ──
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 2.dp)
+                        .width(16.dp)
+                        .height(1.dp)
+                        .background(fg.copy(alpha = 0.20f))
+                )
 
-                LiquidIconButton(
-                    onClick = onPickImage,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(34.dp)
+                // ── Cluster 2: Stroke Thickness Selector ──
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(2.dp)
                 ) {
-                    Icon(Icons.Rounded.CropSquare, "Insert Image", Modifier.size(16.dp), fg)
-                }
+                    thicknessItems.forEach { (width, dotSize, label) ->
+                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
+                        val btnScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.08f else 1.0f,
+                            animationSpec = springSpec,
+                            label = "strokeScale_vert_$width"
+                        )
 
-                LiquidIconButton(
-                    onClick = onToggleFindBar,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Rounded.Search, "Find", Modifier.size(16.dp), fg)
-                }
-
-                if (hasEdits && !isExporting) {
-                    LiquidIconButton(
-                        onClick = onShowSaveDialog,
-                        backdrop = backdrop,
-                        tint = Color(0xFF1976D2),
-                        surfaceColor = Color(0xFF1976D2).copy(alpha = 0.9f),
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(Icons.Rounded.Check, "Save", Modifier.size(16.dp), Color.White)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .scale(btnScale)
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .then(
+                                    if (isSelected) {
+                                        Modifier
+                                            .background(accent.copy(alpha = 0.92f))
+                                            .border(0.75.dp, specularHighlight, RoundedCornerShape(9.dp))
+                                    } else Modifier
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSetStrokeWidth(width)
+                                }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(dotSize)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Color.White else fg.copy(alpha = 0.78f))
+                            )
+                        }
                     }
                 }
 
-                LiquidIconButton(
-                    onClick = onShareDocument,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(34.dp)
+                // ── Divider: Subtle horizontal separator (16dp width, 1dp height) ──
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 2.dp)
+                        .width(16.dp)
+                        .height(1.dp)
+                        .background(fg.copy(alpha = 0.20f))
+                )
+
+                // ── Cluster 3: Color Palette Swatches Cluster ──
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(horizontal = 2.dp, vertical = 3.dp)
                 ) {
-                    Icon(Icons.Rounded.IosShare, "Share", Modifier.size(16.dp), fg)
+                    colorClusterContent()
                 }
             }
         } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
             ) {
-                if (drawingToolActive) {
-                    listOf(3f to "Fine", 6f to "Med", 11f to "Bold").forEach { (width, label) ->
-                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
-                        LiquidButton(
-                            onClick = { onSetStrokeWidth(width) },
-                            backdrop = backdrop,
-                            surfaceColor = if (isSelected) accent.copy(alpha = 0.9f) else chip,
-                            modifier = Modifier.height(28.dp)
+                // ── Cluster 1: Shape Geometries (InkShapeMode) ──
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(2.dp)
+                ) {
+                    shapeItems.forEach { (mode, pair) ->
+                        val (icon, label) = pair
+                        val isSelected = activeShapeMode == mode && (penActive || hlActive)
+                        val btnScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.08f else 1.0f,
+                            animationSpec = springSpec,
+                            label = "shapeScale_horiz_${mode.name}"
+                        )
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .scale(btnScale)
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .then(
+                                    if (isSelected) {
+                                        Modifier
+                                            .background(accent.copy(alpha = 0.92f))
+                                            .border(0.75.dp, specularHighlight, RoundedCornerShape(9.dp))
+                                    } else Modifier
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSetShapeMode(mode)
+                                }
                         ) {
-                            BasicText(
-                                label,
-                                style = TextStyle(
-                                    color = if (isSelected) Color.White else fg,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) Color.White else fg.copy(alpha = 0.78f),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
-                    Box(Modifier.width(1.dp).height(20.dp).background(fg.copy(0.12f)))
-                    LiquidIconButton(
-                        onClick = onClearPage,
-                        backdrop = backdrop,
-                        surfaceColor = chip,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(Icons.Rounded.Delete, "Clear Page", Modifier.size(15.dp), fg)
+                }
+
+                // ── Divider: Subtle vertical glass separator (1dp width, 16dp height) ──
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 2.dp)
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(fg.copy(alpha = 0.20f))
+                )
+
+                // ── Cluster 2: Stroke Thickness Selector ──
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(2.dp)
+                ) {
+                    thicknessItems.forEach { (width, dotSize, label) ->
+                        val isSelected = (currentStrokeWidth - width).let { it >= -0.5f && it <= 0.5f }
+                        val btnScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.08f else 1.0f,
+                            animationSpec = springSpec,
+                            label = "strokeScale_horiz_$width"
+                        )
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .scale(btnScale)
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .then(
+                                    if (isSelected) {
+                                        Modifier
+                                            .background(accent.copy(alpha = 0.92f))
+                                            .border(0.75.dp, specularHighlight, RoundedCornerShape(9.dp))
+                                    } else Modifier
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSetStrokeWidth(width)
+                                }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(dotSize)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Color.White else fg.copy(alpha = 0.78f))
+                            )
+                        }
                     }
                 }
 
-                LiquidIconButton(
-                    onClick = onShowSignaturePad,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.Rounded.Gesture, "Signature", Modifier.size(15.dp), fg)
-                }
+                // ── Divider: Subtle vertical glass separator (1dp width, 16dp height) ──
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 2.dp)
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(fg.copy(alpha = 0.20f))
+                )
 
-                LiquidIconButton(
-                    onClick = onPickImage,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(32.dp)
+                // ── Cluster 3: Color Palette Swatches Cluster ──
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(fg.copy(alpha = 0.06f))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    Icon(Icons.Rounded.CropSquare, "Insert Image", Modifier.size(15.dp), fg)
+                    colorClusterContent()
                 }
+            }
+        }
+    }
 
-                LiquidIconButton(
-                    onClick = onToggleFindBar,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(32.dp)
+    // ── Color Picker Dialog (GlassColorPicker) ─────────────────────────────────
+    if (showColorPicker) {
+        Dialog(
+            onDismissRequest = { showColorPicker = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .padding(20.dp)
+                    .viewerGlass(backdrop, dockGlassTint, shape = { RoundedCornerShape(24.dp) })
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(0.75.dp, specularHighlight, RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Icon(Icons.Rounded.Search, "Find", Modifier.size(15.dp), fg)
-                }
-
-                if (hasEdits && !isExporting) {
-                    LiquidIconButton(
-                        onClick = onShowSaveDialog,
-                        backdrop = backdrop,
-                        tint = Color(0xFF1976D2),
-                        surfaceColor = Color(0xFF1976D2).copy(alpha = 0.9f),
-                        modifier = Modifier.size(32.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Rounded.Check, "Save", Modifier.size(15.dp), Color.White)
+                        BasicText(
+                            "Color Palette",
+                            style = TextStyle(
+                                color = fg,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        LiquidIconButton(
+                            onClick = { showColorPicker = false },
+                            backdrop = backdrop,
+                            surfaceColor = chip,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Close",
+                                tint = fg,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
-                }
 
-                LiquidIconButton(
-                    onClick = onShareDocument,
-                    backdrop = backdrop,
-                    surfaceColor = chip,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.Rounded.IosShare, "Share", Modifier.size(15.dp), fg)
+                    var pickerDraftColor by remember(showColorPicker, currentColor) { mutableStateOf(currentColor) }
+
+                    GlassColorPicker(
+                        color = pickerDraftColor,
+                        onColorChange = { c ->
+                            pickerDraftColor = c
+                        },
+                        backdrop = backdrop,
+                        showAlpha = false
+                    )
+
+                    LiquidButton(
+                        onClick = {
+                            val argbLong = pickerDraftColor.toArgb().toLong() and 0xFFFFFFFFL
+                            onSetColorLong(argbLong)
+                            if (!penActive && !hlActive) {
+                                onSetActiveTool(PdfEditTool.Draw)
+                            }
+                            showColorPicker = false
+                        },
+                        backdrop = backdrop,
+                        surfaceColor = accent.copy(alpha = 0.92f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp)
+                    ) {
+                        BasicText(
+                            "Apply",
+                            style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold)
+                        )
+                    }
                 }
             }
         }
@@ -765,7 +1147,7 @@ internal fun PdfViewerBottomToolbar(
 
             // Secondary Flyout Shelf (Adjacent lateral glass card)
             AnimatedVisibility(
-                visible = toolsFlyoutOpen || drawingToolActive,
+                visible = drawingToolActive,
                 enter = fadeIn(tween(180)) + expandHorizontally(),
                 exit = fadeOut(tween(150)) + shrinkHorizontally()
             ) {
@@ -788,7 +1170,7 @@ internal fun PdfViewerBottomToolbar(
         ) {
             // Secondary Flyout Shelf (Floats directly above dock)
             AnimatedVisibility(
-                visible = toolsFlyoutOpen || drawingToolActive,
+                visible = drawingToolActive,
                 enter = fadeIn(tween(180)) + expandVertically(),
                 exit = fadeOut(tween(150)) + shrinkVertically()
             ) {

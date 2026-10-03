@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.runtime.saveable.listSaver
 import com.chethan616.clearpdf.ui.viewmodel.ExportOverlay
 import com.chethan616.clearpdf.ui.viewmodel.FindMatch
 import com.chethan616.clearpdf.ui.viewmodel.NormalizedPoint
@@ -23,11 +24,35 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
+// ── Recent Colors Cache & MRU Helpers ─────────────────────────────────────────
+
+internal val DefaultRecentColors: List<Color> = listOf(
+    Color(0xFF1A1A1E), // Charcoal Black
+    Color(0xFF1E88E5), // Royal Blue
+    Color(0xFFE53935)  // Vibrant Red
+)
+
+internal val RecentColorsSaver = listSaver<List<Color>, Long>(
+    save = { list -> list.map { it.toArgb().toLong() and 0xFFFFFFFFL } },
+    restore = { savedList -> savedList.map { Color(it) } }
+)
+
+internal fun pushRecentColor(color: Color, currentList: List<Color>): List<Color> {
+    return (listOf(color) + currentList.filter { it.toArgb() != color.toArgb() }).take(3)
+}
+
+// ── Laser Pointer Constants ───────────────────────────────────────────────────
+internal const val LASER_STROKE_HOLD_DURATION_MS = 1600L
+internal const val LASER_STROKE_FADE_DURATION_MS = 400L
+internal const val LASER_COLOR_ARGB = 0xFFFF1744.toInt()
+
 // ── Viewer local enums ────────────────────────────────────────────────────────
 
 internal enum class ScrollOrientation { Vertical, Horizontal }
 
-internal enum class PdfEditTool { None, Draw, Highlight, Rect, Ellipse, Line, Arrow, Image, Eraser, Text, Note }
+internal enum class PdfEditTool { None, Draw, Highlight, Rect, Ellipse, Line, Arrow, Triangle, Text, StickyNote, Image, Signature, Eraser, Laser }
+
+internal enum class InkShapeMode { Free, Arrow, Rectangle, Circle, Triangle }
 
 internal enum class ViewerToolbarMode { Main, Drawing, Selection, Image, Eraser, Search, Signature }
 
@@ -38,7 +63,9 @@ internal sealed class PdfMarkup {
         val points: List<Offset>,
         val color: Color,
         val width: Float,
-        val alpha: Float = 1f
+        val alpha: Float = 1f,
+        val isClosed: Boolean = false,
+        val isHighlight: Boolean = false
     ) : PdfMarkup()
 
     data class RectMarkup(
@@ -46,7 +73,9 @@ internal sealed class PdfMarkup {
         val end: Offset,
         val color: Color,
         val alpha: Float = 1f,
-        val filled: Boolean = false
+        val filled: Boolean = false,
+        val width: Float = 3f,
+        val isHighlight: Boolean = false
     ) : PdfMarkup()
 
     data class OvalMarkup(
@@ -54,7 +83,9 @@ internal sealed class PdfMarkup {
         val end: Offset,
         val color: Color,
         val alpha: Float = 1f,
-        val filled: Boolean = false
+        val filled: Boolean = false,
+        val width: Float = 3f,
+        val isHighlight: Boolean = false
     ) : PdfMarkup()
 
     data class LineMarkup(
@@ -63,7 +94,8 @@ internal sealed class PdfMarkup {
         val color: Color,
         val width: Float = 3f,
         val alpha: Float = 1f,
-        val arrowHead: Boolean = false
+        val arrowHead: Boolean = false,
+        val isHighlight: Boolean = false
     ) : PdfMarkup()
 
     data class TextBlockHighlightMarkup(
@@ -130,17 +162,17 @@ internal sealed class PdfMarkup {
         is TextBlockLineMarkup      -> false
         is ImageMarkup -> {
             val r = Rect(min(start.x, end.x), min(start.y, end.y), max(start.x, end.x), max(start.y, end.y))
-            r.contains(p)
+            r.inflate(14f).contains(p)
         }
         is TextBoxMarkup -> {
             val lines = if (text.isEmpty()) 1 else text.split("\n").size
             val w = (text.split("\n").maxOfOrNull { it.length } ?: 1).coerceAtLeast(1) * fontSize * 0.6f
             val r = Rect(position.x - 6f, position.y - 6f, position.x + w + 6f, position.y + fontSize * 1.2f * lines + 6f)
-            r.contains(p)
+            r.inflate(14f).contains(p)
         }
         is NoteMarkup -> {
             val r = Rect(anchor.x - 8f, anchor.y - 8f, anchor.x + 40f, anchor.y + 40f)
-            r.contains(p)
+            r.inflate(12f).contains(p)
         }
     }
 }
@@ -418,13 +450,14 @@ internal fun smoothPath(pts: List<Offset>): Path {
 }
 
 internal fun DrawScope.drawArrow(
-    start: Offset, end: Offset, color: Color, width: Float
+    start: Offset, end: Offset, color: Color, width: Float,
+    blendMode: androidx.compose.ui.graphics.BlendMode = DrawScope.DefaultBlendMode
 ) {
-    drawLine(color, start, end, width, cap = StrokeCap.Round)
+    drawLine(color, start, end, width, cap = StrokeCap.Round, blendMode = blendMode)
     val angle = atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
-    val arrowLen = (width * 3.5f).coerceAtLeast(18f)
-    val angle1 = angle + PI - (PI / 6)
-    val angle2 = angle + PI + (PI / 6)
+    val arrowLen = (width * 4.5f).coerceIn(24f, 72f)
+    val angle1 = angle + PI - (PI / 7.2)
+    val angle2 = angle + PI + (PI / 7.2)
     val p1 = Offset((end.x + arrowLen * cos(angle1)).toFloat(), (end.y + arrowLen * sin(angle1)).toFloat())
     val p2 = Offset((end.x + arrowLen * cos(angle2)).toFloat(), (end.y + arrowLen * sin(angle2)).toFloat())
     val path = Path().apply {
@@ -433,19 +466,23 @@ internal fun DrawScope.drawArrow(
         lineTo(p2.x, p2.y)
         close()
     }
-    drawPath(path, color)
+    drawPath(path, color, blendMode = blendMode)
 }
 
 internal fun buildExportOverlays(
     annotationsByPage: Map<Int, List<PdfMarkup>>,
     ocrBlocksByPage: Map<Int, List<OcrTextBlock>>,
     pageCanvasSizes: Map<Int, Size>,
-    pageBitmapSizes: Map<Int, Size>
+    pageBitmapSizes: Map<Int, Size>,
+    stickyNotesByPage: Map<Int, List<com.malhoutha.core.ink.models.StickyCardAnnotation>> = emptyMap()
 ): Map<Int, List<ExportOverlay>> {
     val map = mutableMapOf<Int, List<ExportOverlay>>()
 
-    annotationsByPage.forEach { (page, markups) ->
-        if (markups.isEmpty()) return@forEach
+    val allPages = (annotationsByPage.keys + stickyNotesByPage.keys).distinct()
+    allPages.forEach { page ->
+        val markups = annotationsByPage[page].orEmpty()
+        val stickyNotes = stickyNotesByPage[page].orEmpty()
+        if (markups.isEmpty() && stickyNotes.isEmpty()) return@forEach
         val cs = pageCanvasSizes[page] ?: return@forEach
         val bs = pageBitmapSizes[page]  ?: cs
         if (cs.width <= 0f || cs.height <= 0f || bs.width <= 0f || bs.height <= 0f) return@forEach
@@ -574,6 +611,19 @@ internal fun buildExportOverlays(
                         )
                     )
                 }
+            }
+        }
+
+        stickyNotes.forEach { note ->
+            val text = if (note.title.isNotBlank()) "${note.title}\n\n${note.content}" else note.content
+            if (text.isNotBlank() || note.title.isNotBlank()) {
+                list.add(
+                    ExportOverlay.NoteStamp(
+                        position = NormalizedPoint(note.xNorm, note.yNorm),
+                        text = text,
+                        colorArgb = (note.colorHex and 0xFFFFFFFFL).toInt()
+                    )
+                )
             }
         }
 

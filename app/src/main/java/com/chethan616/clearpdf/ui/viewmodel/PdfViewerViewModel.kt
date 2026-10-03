@@ -721,6 +721,15 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
         }
     }
 
+    suspend fun exportToUri(
+        context: Context,
+        overlaysByPage: Map<Int, List<ExportOverlay>>,
+        outputUri: Uri
+    ) = withContext(Dispatchers.IO) {
+        val doc = _uiState.value.document ?: throw IllegalStateException("Cannot export: No document loaded")
+        exportWithPdfBox(context, doc, overlaysByPage, outputUri)
+    }
+
     private fun exportWithPdfBox(
         context: Context,
         doc: PdfDocument,
@@ -854,21 +863,29 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
                     gs.strokingAlphaConstant = overlay.alpha
                     cs.setGraphicsStateParameters(gs)
                     cs.setStrokingColor(c.red(), c.green(), c.blue())
-                    cs.setLineWidth((overlay.widthNorm * min(pageW, pageH)).coerceAtLeast(0.5f))
+                    val lineW = (overlay.widthNorm * min(pageW, pageH)).coerceAtLeast(0.5f)
+                    cs.setLineWidth(lineW)
                     cs.setLineCapStyle(1)
                     cs.moveTo(x1, y1)
                     cs.lineTo(x2, y2)
+                    cs.stroke()
+
                     if (overlay.arrowHead) {
                         val angle = atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())
-                        val headLen = (overlay.widthNorm * min(pageW, pageH) * 4f).coerceAtLeast(8f).toDouble()
-                        val a1 = angle + PI - PI / 6
-                        val a2 = angle + PI + PI / 6
+                        val headLen = (lineW * 4.5f).coerceIn(24f, 72f).toDouble()
+                        val a1 = angle + PI - (PI / 7.2)
+                        val a2 = angle + PI + (PI / 7.2)
+                        val p1x = (x2 + headLen * cos(a1)).toFloat()
+                        val p1y = (y2 + headLen * sin(a1)).toFloat()
+                        val p2x = (x2 + headLen * cos(a2)).toFloat()
+                        val p2y = (y2 + headLen * sin(a2)).toFloat()
+                        cs.setNonStrokingColor(c.red(), c.green(), c.blue())
                         cs.moveTo(x2, y2)
-                        cs.lineTo((x2 + headLen * cos(a1)).toFloat(), (y2 + headLen * sin(a1)).toFloat())
-                        cs.moveTo(x2, y2)
-                        cs.lineTo((x2 + headLen * cos(a2)).toFloat(), (y2 + headLen * sin(a2)).toFloat())
+                        cs.lineTo(p1x, p1y)
+                        cs.lineTo(p2x, p2y)
+                        cs.closePath()
+                        cs.fill()
                     }
-                    cs.stroke()
                     cs.restoreGraphicsState()
                 }
 

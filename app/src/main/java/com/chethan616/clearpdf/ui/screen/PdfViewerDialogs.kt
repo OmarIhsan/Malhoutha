@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.offset
@@ -36,7 +37,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -320,6 +323,7 @@ internal fun ExportShareDialog(
     surface: Color,
     field: Color,
     onDismiss: () -> Unit,
+    onSaveToDevice: (() -> Unit)? = null,
     onShare: (format: ShareFormat, encrypt: Boolean, password: String) -> Unit
 ) {
     // Keyed on `visible` so every open starts fresh.
@@ -384,7 +388,7 @@ internal fun ExportShareDialog(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     BasicText(
-                        stringResource(R.string.viewer_share_title),
+                        stringResource(R.string.viewer_share_export),
                         style = TextStyle(fg, 17.sp, fontWeight = FontWeight.Bold)
                     )
 
@@ -475,25 +479,66 @@ internal fun ExportShareDialog(
                         }
                     }
 
-                    Row(
+                    Column(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        LiquidButton(onClick = onDismiss, backdrop = backdrop, surfaceColor = field) {
-                            BasicText(stringResource(R.string.cancel), style = TextStyle(fg, 13.sp, FontWeight.Medium))
+                        if (onSaveToDevice != null) {
+                            LiquidButton(
+                                onClick = onSaveToDevice,
+                                backdrop = backdrop,
+                                surfaceColor = field,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Rounded.Download, null, Modifier.size(18.dp), fg)
+                                    Spacer(Modifier.width(8.dp))
+                                    BasicText(
+                                        stringResource(R.string.viewer_save_device),
+                                        style = TextStyle(fg, 13.sp, FontWeight.SemiBold)
+                                    )
+                                }
+                            }
                         }
-                        LiquidButton(
-                            onClick = {
-                                if (canShare) onShare(
-                                    if (pdfSelected) ShareFormat.PDF else ShareFormat.ORIGINAL,
-                                    encrypt && pdfSelected,
-                                    password
-                                )
-                            },
-                            backdrop = backdrop,
-                            tint = if (canShare) Color(0xFF1976D2) else Color(0xFF1976D2).copy(0.4f)
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            BasicText(stringResource(R.string.viewer_share_button), style = TextStyle(Color.White, 13.sp, fontWeight = FontWeight.Bold))
+                            LiquidButton(onClick = onDismiss, backdrop = backdrop, surfaceColor = field) {
+                                BasicText(stringResource(R.string.cancel), style = TextStyle(fg, 13.sp, FontWeight.Medium))
+                            }
+                            LiquidButton(
+                                onClick = {
+                                    if (canShare) onShare(
+                                        if (pdfSelected) ShareFormat.PDF else ShareFormat.ORIGINAL,
+                                        encrypt && pdfSelected,
+                                        password
+                                    )
+                                },
+                                backdrop = backdrop,
+                                tint = if (canShare) Color(0xFF1976D2) else Color(0xFF1976D2).copy(0.4f),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Share, null, Modifier.size(16.dp), Color.White)
+                                    BasicText(
+                                        stringResource(R.string.viewer_share_button),
+                                        style = TextStyle(Color.White, 13.sp, fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

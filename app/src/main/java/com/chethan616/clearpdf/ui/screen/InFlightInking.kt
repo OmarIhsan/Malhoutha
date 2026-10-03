@@ -163,12 +163,13 @@ internal class InFlightInkState {
         return result
     }
 
-    fun startShape(tool: PdfEditTool, start: Offset, color: Color, width: Float) {
+    fun startShape(tool: PdfEditTool, start: Offset, color: Color, width: Float, highlight: Boolean = false) {
         this.shapeTool = tool
         this.shapeStart = start
         this.shapeEnd = start
         this.color = color
         this.strokeWidth = width
+        this.isHighlight = highlight
         this.isActive = true
         this.points.clear()
         this.predictedPoints.clear()
@@ -187,13 +188,31 @@ internal class InFlightInkState {
         val tool = shapeTool
         val s = shapeStart
         val e = shapeEnd
+        val isHl = isHighlight
         cancel()
         if (tool == null || s == null || e == null) return null
+        val alpha = if (isHl) 0.38f else 1f
+        val sw = if (isHl) strokeWidth * 2.8f else strokeWidth
+        val minX = min(s.x, e.x)
+        val minY = min(s.y, e.y)
+        val maxX = max(s.x, e.x)
+        val maxY = max(s.y, e.y)
         return when (tool) {
-            PdfEditTool.Rect    -> PdfMarkup.RectMarkup(s, e, color, 1f, false)
-            PdfEditTool.Ellipse -> PdfMarkup.OvalMarkup(s, e, color, 1f, false)
-            PdfEditTool.Line    -> PdfMarkup.LineMarkup(s, e, color, strokeWidth, 1f, false)
-            PdfEditTool.Arrow   -> PdfMarkup.LineMarkup(s, e, color, strokeWidth, 1f, true)
+            PdfEditTool.Rect    -> PdfMarkup.RectMarkup(Offset(minX, minY), Offset(maxX, maxY), color, alpha, false, width = sw, isHighlight = isHl)
+            PdfEditTool.Ellipse -> PdfMarkup.OvalMarkup(Offset(minX, minY), Offset(maxX, maxY), color, alpha, false, width = sw, isHighlight = isHl)
+            PdfEditTool.Line    -> PdfMarkup.LineMarkup(s, e, color, sw, alpha, false, isHighlight = isHl)
+            PdfEditTool.Arrow   -> PdfMarkup.LineMarkup(s, e, color, sw, alpha, true, isHighlight = isHl)
+            PdfEditTool.Triangle -> {
+                val midX = s.x + (e.x - s.x) / 2f
+                PdfMarkup.StrokeMarkup(
+                    points = listOf(Offset(midX, s.y), Offset(s.x, e.y), Offset(e.x, e.y)),
+                    color = color,
+                    width = sw,
+                    alpha = alpha,
+                    isClosed = true,
+                    isHighlight = isHl
+                )
+            }
             else -> null
         }
     }
@@ -251,6 +270,102 @@ internal fun extractDigitizerBatchPoints(
             val list = ArrayList<Offset>(historySize)
             for (h in 0 until historySize) {
                 list.add(Offset(motionEvent.getHistoricalX(pIdx, h) + dx, motionEvent.getHistoricalY(pIdx, h) + dy))
+            }
+            return list
+        }
+    }
+
+    return emptyList()
+}
+
+/**
+ * Coordinate node for ephemeral laser pointer strokes.
+ */
+internal data class LaserPoint(
+    val x: Float,
+    val y: Float
+)
+
+/**
+ * Frozen completed laser vector stroke awaiting time-decay dissolution via CanvasFrontBufferedRenderer.
+ */
+internal data class CompletedLaserStroke(
+    val path: android.graphics.Path,
+    val birthTime: Long = android.os.SystemClock.uptimeMillis()
+)
+
+internal typealias LaserStroke = CompletedLaserStroke
+
+/**
+ * Smoothly constructs a unified Skia Path through the provided laser coordinates
+ * using midpoint quadratic Bezier interpolation.
+ */
+internal fun rebuildLaserPath(points: List<LaserPoint>, path: android.graphics.Path) {
+    path.reset()
+    if (points.isEmpty()) return
+    val p0 = points[0]
+    path.moveTo(p0.x, p0.y)
+    if (points.size == 1) {
+        // Micro-offset allows Paint.Cap.ROUND to stamp a circular dot
+        path.lineTo(p0.x + 0.1f, p0.y + 0.1f)
+        return
+    }
+    if (points.size == 2) {
+        val p1 = points[1]
+        path.lineTo(p1.x, p1.y)
+        return
+    }
+    for (i in 1 until points.size - 1) {
+        val pt0 = points[i]
+        val pt1 = points[i + 1]
+        val midX = (pt0.x + pt1.x) / 2f
+        val midY = (pt0.y + pt1.y) / 2f
+        path.quadTo(pt0.x, pt0.y, midX, midY)
+    }
+    val last = points.last()
+    path.lineTo(last.x, last.y)
+}
+
+/**
+ * Extracts historical batch points from the 240Hz active digitizer for the real-time laser pointer ribbon.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun extractLaserBatchPoints(
+    change: PointerInputChange,
+    event: PointerEvent
+): List<LaserPoint> {
+    val composeHist = change.historical
+    if (composeHist.isNotEmpty()) {
+        val list = ArrayList<LaserPoint>(composeHist.size)
+        for (i in 0 until composeHist.size) {
+            val h = composeHist[i]
+            list.add(LaserPoint(h.position.x, h.position.y))
+        }
+        return list
+    }
+
+    val motionEvent = event.motionEvent
+    if (motionEvent != null && motionEvent.historySize > 0) {
+        val pIdx = if (motionEvent.pointerCount > 0) {
+            val id = change.id.value.toInt()
+            val found = motionEvent.findPointerIndex(id)
+            if (found >= 0) found else 0
+        } else 0
+
+        if (pIdx in 0 until motionEvent.pointerCount) {
+            val curMotionX = motionEvent.getX(pIdx)
+            val curMotionY = motionEvent.getY(pIdx)
+            val dx = change.position.x - curMotionX
+            val dy = change.position.y - curMotionY
+            val historySize = motionEvent.historySize
+            val list = ArrayList<LaserPoint>(historySize)
+            for (h in 0 until historySize) {
+                list.add(
+                    LaserPoint(
+                        motionEvent.getHistoricalX(pIdx, h) + dx,
+                        motionEvent.getHistoricalY(pIdx, h) + dy
+                    )
+                )
             }
             return list
         }
@@ -365,11 +480,25 @@ internal fun InFlightInkingOverlay(
                         val e = state.shapeEnd
                         if (s != null && e != null) {
                             val pr = Rect(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
+                            val isHl = state.isHighlight
+                            val sw = if (isHl) state.strokeWidth * 2.8f else state.strokeWidth
+                            val alpha = if (isHl) 0.38f else 1f
+                            val shapeColor = state.color.copy(alpha = alpha)
                             when (sTool) {
-                                PdfEditTool.Rect    -> drawRect(Color(0xFF42A5F5), pr.topLeft, pr.size, style = Stroke(3f))
-                                PdfEditTool.Ellipse -> drawOval(Color(0xFF26A69A), pr.topLeft, pr.size, style = Stroke(3f))
-                                PdfEditTool.Line    -> drawLine(Color(0xFF66BB6A), s, e, 4f)
-                                PdfEditTool.Arrow   -> drawArrow(s, e, Color(0xFFEF5350), 4f)
+                                PdfEditTool.Rect    -> drawRect(shapeColor, pr.topLeft, pr.size, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                PdfEditTool.Ellipse -> drawOval(shapeColor, pr.topLeft, pr.size, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                PdfEditTool.Line    -> drawLine(shapeColor, s, e, sw, cap = StrokeCap.Round)
+                                PdfEditTool.Arrow   -> drawArrow(s, e, shapeColor, sw)
+                                PdfEditTool.Triangle -> {
+                                    val midX = s.x + (e.x - s.x) / 2f
+                                    val tri = Path().apply {
+                                        moveTo(midX, s.y)
+                                        lineTo(s.x, e.y)
+                                        lineTo(e.x, e.y)
+                                        close()
+                                    }
+                                    drawPath(tri, shapeColor, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                }
                                 else -> Unit
                             }
                         }

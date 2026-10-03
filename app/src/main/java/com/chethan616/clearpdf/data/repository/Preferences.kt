@@ -180,6 +180,33 @@ object AppSettingsManager {
 
     fun setScrollOrientation(context: Context, value: Int) =
         prefs(context).edit().putInt("scroll_orientation", value).apply()
+
+    private const val KEY_TOOLBAR_ORIENTATION = "toolbar_dock_orientation"
+
+    fun getToolbarOrientation(context: Context): ToolbarOrientation? {
+        val raw = prefs(context).getString(KEY_TOOLBAR_ORIENTATION, null) ?: return null
+        return runCatching { ToolbarOrientation.valueOf(raw) }.getOrNull()
+    }
+
+    fun setToolbarOrientation(context: Context, orientation: ToolbarOrientation) {
+        prefs(context).edit().putString(KEY_TOOLBAR_ORIENTATION, orientation.name).apply()
+    }
+
+    fun clearToolbarOrientation(context: Context) {
+        prefs(context).edit().remove(KEY_TOOLBAR_ORIENTATION).apply()
+    }
+}
+
+/**
+ * Explicit user and adaptive orientation for the viewer toolbar dock:
+ * - Horizontal: Floating capsule centered at the bottom of the display.
+ * - Vertical: Lateral spine dock pinned along the left side.
+ */
+enum class ToolbarOrientation {
+    Horizontal,
+    Vertical;
+
+    fun toggle(): ToolbarOrientation = if (this == Vertical) Horizontal else Vertical
 }
 
 /**

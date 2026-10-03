@@ -239,6 +239,8 @@
 
     <!-- Share / export dialog -->
     <string name="viewer_share_title">Share</string>
+    <string name="viewer_share_export">Share &amp; Export</string>
+    <string name="viewer_save_device">Save to Device</string>
     <string name="viewer_share_format">Format</string>
     <string name="viewer_share_encrypt">Encrypt with password</string>
     <string name="viewer_share_password_hint">Password</string>

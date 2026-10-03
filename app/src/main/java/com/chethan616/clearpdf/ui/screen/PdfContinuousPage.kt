@@ -9,10 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +64,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.chethan616.clearpdf.ui.paper.PaperConfig
 import com.chethan616.clearpdf.ui.paper.drawSyntheticPaper
+import com.chethan616.clearpdf.ui.components.StickyNoteCard
+import com.malhoutha.core.ink.models.StickyCardAnnotation
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -111,6 +117,7 @@ internal fun PdfContinuousPage(
     currentMatchIndex: Int,
     showFindBar: Boolean,
     activeTool: PdfEditTool,
+    shapeMode: InkShapeMode = InkShapeMode.Free,
     currentColor: Color,
     currentStrokeWidth: Float,
     activeImageId: Long?,
@@ -134,12 +141,27 @@ internal fun PdfContinuousPage(
     /** The viewer's text selection: this page draws its slice of the highlight and registers its coordinates. */
     textSelection: PdfTextSelectionState,
     /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain). Infinitely sharp at any zoom. */
-    paperConfig: PaperConfig? = null
+    paperConfig: PaperConfig? = null,
+    // Sticky Card Notes (Post-it style)
+    stickyNotes: List<StickyCardAnnotation> = emptyList(),
+    selectedStickyNoteId: String? = null,
+    onSelectStickyNote: (String?) -> Unit = {},
+    onStickyNoteChanged: (StickyCardAnnotation) -> Unit = {},
+    onDeleteStickyNote: (String) -> Unit = {},
+    onPlaceStickyNote: (Offset) -> Unit = {},
+    onPlaceImage: ((Offset) -> Unit)? = null,
+    onTransformGesture: ((centroid: Offset, pan: Offset, zoom: Float) -> Unit)? = null
 ) {
     val inFlightState = remember(page) { InFlightInkState() }
     val hostView = LocalView.current
     val pendingHandoffClear = remember(page) { AtomicReference<(() -> Unit)?>(null) }
     val selectionColors = LocalTextSelectionColors.current
+    val localDensity = LocalDensity.current
+    var localPageSize by remember { mutableStateOf(Size.Zero) }
+    // Generous 44dp touch-slop hit target (22dp radial threshold) for accessible stylus & finger interaction
+    val handleHitRadiusPx = with(localDensity) { 22.dp.toPx() }
+    val handleHitRadiusSq = handleHitRadiusPx * handleHitRadiusPx
+    val transformPadPx = with(localDensity) { 32.dp.toPx() }
     DisposableEffect(page, textSelection) { onDispose { textSelection.unregisterPage(page, null) } }
     // Accessibility: expose the page's extracted text to TalkBack, plus a "select page text" action.
     val selectPageLabel = stringResource(R.string.selection_select_page_text)
@@ -185,7 +207,9 @@ internal fun PdfContinuousPage(
             .onGloballyPositioned { textSelection.registerPage(page, it) }
             .then(pageTextSemantics)
             .onSizeChanged { sz ->
-                pageCanvasSizes[page] = Size(sz.width.toFloat(), sz.height.toFloat())
+                val fSize = Size(sz.width.toFloat(), sz.height.toFloat())
+                localPageSize = fSize
+                pageCanvasSizes[page] = fSize
                 if (bitmap != null) pageBitmapSizes[page] = Size(bitmap.width.toFloat(), bitmap.height.toFloat())
             }
     ) {
@@ -232,22 +256,42 @@ internal fun PdfContinuousPage(
             marks.forEach { markup ->
                 when (markup) {
                     is PdfMarkup.StrokeMarkup -> if (markup.points.size > 1) {
-                        drawPath(smoothPath(markup.points), markup.color.copy(markup.alpha),
-                            style = Stroke(markup.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                        val path = if (markup.isClosed) {
+                            Path().apply {
+                                moveTo(markup.points[0].x, markup.points[0].y)
+                                for (i in 1 until markup.points.size) {
+                                    lineTo(markup.points[i].x, markup.points[i].y)
+                                }
+                                close()
+                            }
+                        } else {
+                            smoothPath(markup.points)
+                        }
+                        val blend = if (markup.isHighlight) androidx.compose.ui.graphics.BlendMode.SrcOver else androidx.compose.ui.graphics.drawscope.DrawScope.DefaultBlendMode
+                        drawPath(
+                            path = path,
+                            color = markup.color.copy(markup.alpha),
+                            style = Stroke(markup.width, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            blendMode = blend
+                        )
                     }
                     is PdfMarkup.RectMarkup -> {
                         val r = Rect(min(markup.start.x, markup.end.x), min(markup.start.y, markup.end.y), max(markup.start.x, markup.end.x), max(markup.start.y, markup.end.y))
-                        if (markup.filled) drawRect(markup.color.copy(markup.alpha), r.topLeft, r.size)
-                        else drawRect(markup.color.copy(markup.alpha), r.topLeft, r.size, style = Stroke(3f))
+                        val blend = if (markup.isHighlight) androidx.compose.ui.graphics.BlendMode.SrcOver else androidx.compose.ui.graphics.drawscope.DrawScope.DefaultBlendMode
+                        if (markup.filled) drawRect(markup.color.copy(markup.alpha), r.topLeft, r.size, blendMode = blend)
+                        else drawRect(markup.color.copy(markup.alpha), r.topLeft, r.size, style = Stroke(markup.width, cap = StrokeCap.Round, join = StrokeJoin.Round), blendMode = blend)
                     }
                     is PdfMarkup.OvalMarkup -> {
                         val r = Rect(min(markup.start.x, markup.end.x), min(markup.start.y, markup.end.y), max(markup.start.x, markup.end.x), max(markup.start.y, markup.end.y))
-                        if (markup.filled) drawOval(markup.color.copy(markup.alpha), r.topLeft, r.size)
-                        else drawOval(markup.color.copy(markup.alpha), r.topLeft, r.size, style = Stroke(3f))
+                        val blend = if (markup.isHighlight) androidx.compose.ui.graphics.BlendMode.SrcOver else androidx.compose.ui.graphics.drawscope.DrawScope.DefaultBlendMode
+                        if (markup.filled) drawOval(markup.color.copy(markup.alpha), r.topLeft, r.size, blendMode = blend)
+                        else drawOval(markup.color.copy(markup.alpha), r.topLeft, r.size, style = Stroke(markup.width, cap = StrokeCap.Round, join = StrokeJoin.Round), blendMode = blend)
                     }
-                    is PdfMarkup.LineMarkup ->
-                        if (markup.arrowHead) drawArrow(markup.start, markup.end, markup.color.copy(markup.alpha), markup.width)
-                        else drawLine(markup.color.copy(markup.alpha), markup.start, markup.end, markup.width)
+                    is PdfMarkup.LineMarkup -> {
+                        val blend = if (markup.isHighlight) androidx.compose.ui.graphics.BlendMode.SrcOver else androidx.compose.ui.graphics.drawscope.DrawScope.DefaultBlendMode
+                        if (markup.arrowHead) drawArrow(markup.start, markup.end, markup.color.copy(markup.alpha), markup.width, blendMode = blend)
+                        else drawLine(markup.color.copy(markup.alpha), markup.start, markup.end, markup.width, cap = StrokeCap.Round, blendMode = blend)
+                    }
                     is PdfMarkup.TextBlockHighlightMarkup -> ocrBlocks.firstOrNull { it.id == markup.blockId }?.let { b ->
                         val range = OcrTextRange(markup.blockId, markup.start, markup.end)
                         val r = expandedTextHighlightRect(ocrTextRangeToRect(b, range, frame))
@@ -275,21 +319,9 @@ internal fun PdfContinuousPage(
                                 dstSize = androidx.compose.ui.unit.IntSize(r.width.toInt().coerceAtLeast(1), r.height.toInt().coerceAtLeast(1))
                             )
                         }
-                        if (activeTool == PdfEditTool.Image && markup.id == activeImageId) {
-                            val accent = Color(0xFF0A84FF)
-                            // Rounded selection frame.
-                            drawRoundRect(accent, r.topLeft, r.size, CornerRadius(10f, 10f), style = Stroke(2.5f))
-                            // Passive corner dots (visual anchors).
-                            listOf(r.topLeft, Offset(r.right, r.top), Offset(r.left, r.bottom)).forEach { c ->
-                                drawCircle(Color.White, 8f, c)
-                                drawCircle(accent, 8f, c, style = Stroke(2f))
-                            }
-                            // Prominent bottom-right RESIZE handle with a diagonal glyph.
-                            val br = Offset(r.right, r.bottom)
-                            drawCircle(Color.White, 22f, br)
-                            drawCircle(accent, 22f, br, style = Stroke(3f))
-                            drawLine(accent, Offset(br.x - 7f, br.y + 1f), Offset(br.x + 1f, br.y - 7f), 3f)
-                            drawLine(accent, Offset(br.x - 1f, br.y + 7f), Offset(br.x + 7f, br.y - 1f), 3f)
+                        if (markup.id == activeImageId && (activeTool == PdfEditTool.None || activeTool == PdfEditTool.Image || activeTool == PdfEditTool.Signature)) {
+                            // Unified prominent boundary frame + high-contrast 17dp corner anchors & 23dp resize handle
+                            drawSelectionGizmo(bounds = r, isResizable = true)
                         }
                     }
                     is PdfMarkup.TextBoxMarkup -> {
@@ -317,23 +349,14 @@ internal fun PdfContinuousPage(
             }
 
             // Selection frame + handles for the selected shape / text / note.
-            if (activeTool == PdfEditTool.None) {
-                marks.getOrNull(selectedMarkupIndex)?.takeIf { it.isTransformable() }?.let { selM ->
+            if (activeTool == PdfEditTool.None || activeTool == PdfEditTool.Text) {
+                marks.getOrNull(selectedMarkupIndex)?.takeIf {
+                    (activeTool == PdfEditTool.None || (it is PdfMarkup.TextBoxMarkup || it is PdfMarkup.NoteMarkup)) && it.isTransformable()
+                }?.let { selM ->
                     selM.movableBounds()?.let { b ->
-                        val accent = Color(0xFF0A84FF)
-                        val fr = Rect(b.left - 6f, b.top - 6f, b.right + 6f, b.bottom + 6f)
-                        drawRoundRect(accent, fr.topLeft, fr.size, CornerRadius(10f, 10f), style = Stroke(2.5f))
-                        // Passive anchor dots.
-                        listOf(fr.topLeft, Offset(fr.right, fr.top), Offset(fr.left, fr.bottom)).forEach { c ->
-                            drawCircle(Color.White, 7f, c); drawCircle(accent, 7f, c, style = Stroke(2f))
-                        }
-                        // Bottom-right resize handle (hidden for fixed-size notes).
-                        if (selM.isResizable()) {
-                            val br = Offset(fr.right, fr.bottom)
-                            drawCircle(Color.White, 20f, br); drawCircle(accent, 20f, br, style = Stroke(3f))
-                            drawLine(accent, Offset(br.x - 6f, br.y + 1f), Offset(br.x + 1f, br.y - 6f), 3f)
-                            drawLine(accent, Offset(br.x - 1f, br.y + 6f), Offset(br.x + 6f, br.y - 1f), 3f)
-                        }
+                        val framePad = 6.dp.toPx()
+                        val fr = Rect(b.left - framePad, b.top - framePad, b.right + framePad, b.bottom + framePad)
+                        drawSelectionGizmo(bounds = fr, isResizable = selM.isResizable())
                     }
                 }
 
@@ -399,17 +422,17 @@ internal fun PdfContinuousPage(
 
             // Two-Phase Handoff Synchronization:
             // Compose has now completed drawing the committed mark into its display list.
-            // Post the front-buffer clearance to the host view message queue so it executes
-            // on the next frame immediately after this RenderNode is presented.
+            // Post the front-buffer clearance to the host view animation queue so it executes
+            // on the next animation frame immediately after this RenderNode is presented.
             val clearAction = pendingHandoffClear.getAndSet(null)
             if (clearAction != null) {
-                hostView.post { clearAction.invoke() }
+                hostView.postOnAnimation { clearAction.invoke() }
             }
         }
 
         // ── Tool gesture layers (local coordinates == content coordinates) ──────
         val drawingToolActive = activeTool in setOf(
-            PdfEditTool.Draw, PdfEditTool.Highlight, PdfEditTool.Rect, PdfEditTool.Ellipse, PdfEditTool.Line, PdfEditTool.Arrow
+            PdfEditTool.Draw, PdfEditTool.Highlight, PdfEditTool.Rect, PdfEditTool.Ellipse, PdfEditTool.Line, PdfEditTool.Arrow, PdfEditTool.Triangle
         )
 
         // Reading mode: a plain tap on a placed markup selects it. Images jump to their
@@ -424,7 +447,10 @@ internal fun PdfContinuousPage(
                     // inside its frame (don't steal them here).
                     val sel = marks.getOrNull(selectedMarkupIndex)?.takeIf { it.isTransformable() }
                     val selBounds = sel?.movableBounds()
-                    if (selBounds != null && selBounds.inflate(30f).contains(down.position)) return@awaitEachGesture
+                    if (selBounds != null && selBounds.inflate(transformPadPx).contains(down.position)) return@awaitEachGesture
+                    val selImg = marks.firstOrNull { it is PdfMarkup.ImageMarkup && it.id == activeImageId } as? PdfMarkup.ImageMarkup
+                    val selImgBounds = selImg?.let { Rect(min(it.start.x, it.end.x), min(it.start.y, it.end.y), max(it.start.x, it.end.x), max(it.start.y, it.end.y)) }
+                    if (selImgBounds != null && selImgBounds.inflate(transformPadPx).contains(down.position)) return@awaitEachGesture
 
                     val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
                     val idx = marks.indexOfLast { it.hitTest(down.position, ocrBlocks, frame) }
@@ -437,7 +463,6 @@ internal fun PdfContinuousPage(
                                 is PdfMarkup.ImageMarkup -> {
                                     onSelectMarkup(-1)
                                     onActiveImageIdChanged(hit.id)
-                                    onActiveToolChanged(PdfEditTool.Image)
                                 }
                                 is PdfMarkup.TextBoxMarkup,
                                 is PdfMarkup.NoteMarkup,
@@ -446,7 +471,10 @@ internal fun PdfContinuousPage(
                                 is PdfMarkup.LineMarkup,
                                 is PdfMarkup.StrokeMarkup,
                                 is PdfMarkup.TextBlockHighlightMarkup,
-                                is PdfMarkup.TextBlockLineMarkup -> onSelectMarkup(idx)
+                                is PdfMarkup.TextBlockLineMarkup -> {
+                                    onActiveImageIdChanged(null)
+                                    onSelectMarkup(idx)
+                                }
                                 else -> Unit
                             }
                             onShowControls()
@@ -455,25 +483,299 @@ internal fun PdfContinuousPage(
                     } else {
                         // Missed everything → clear any selection (tap propagates to container).
                         if (selectedMarkupIndex >= 0) onSelectMarkup(-1)
+                        if (activeImageId != null) onActiveImageIdChanged(null)
+                        if (selectedStickyNoteId != null) onSelectStickyNote(null)
+                    }
+                }
+            })
+        }
+
+
+
+        if (drawingToolActive || activeTool == PdfEditTool.Laser) {
+            HardwareInkingSurface(
+                modifier = Modifier.matchParentSize(),
+                state = inFlightState,
+                page = page,
+                activeTool = activeTool,
+                shapeMode = shapeMode,
+                currentColor = currentColor,
+                currentStrokeWidth = currentStrokeWidth,
+                onInteraction = onInteraction,
+                onStrokeCommitted = { newMarkup, onDrawn ->
+                    val previousClear = pendingHandoffClear.getAndSet(onDrawn)
+                    previousClear?.invoke()
+                    marks.add(newMarkup)
+                    onMarkAdded()
+                },
+                onTransformGesture = onTransformGesture
+            )
+        }
+
+        if (activeTool == PdfEditTool.Eraser) {
+            Box(Modifier.matchParentSize().pointerInput(page) {
+                detectTapGestures { p ->
+                    val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
+                    val idx = marks.indexOfLast { it.hitTest(p, ocrBlocks, frame) }
+                    if (idx >= 0) marks.removeAt(idx)
+                    onInteraction()
+                }
+            }.pointerInput(page) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val initialCount = currentEvent.changes.count { it.pressed }
+                    if (initialCount >= 2) {
+                        do {
+                            val event = awaitPointerEvent()
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                        return@awaitEachGesture
+                    }
+                    down.consume()
+                    val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
+                    val idx = marks.indexOfLast { it.hitTest(down.position, ocrBlocks, frame) }
+                    if (idx >= 0) marks.removeAt(idx)
+                    onInteraction()
+                    val pointerId = down.id
+                    var isTwoFingerTransform = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (isTwoFingerTransform) {
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                            if (event.changes.none { it.pressed }) break
+                            continue
+                        }
+                        if (event.changes.count { it.pressed } >= 2) {
+                            isTwoFingerTransform = true
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                            continue
+                        }
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                        if (change == null || !change.pressed) break
+                        change.consume()
+                        val batched = extractDigitizerBatchPoints(change, event)
+                        for (i in 0 until batched.size) {
+                            val bIdx = marks.indexOfLast { it.hitTest(batched[i], ocrBlocks, frame) }
+                            if (bIdx >= 0) marks.removeAt(bIdx)
+                        }
+                        val cIdx = marks.indexOfLast { it.hitTest(change.position, ocrBlocks, frame) }
+                        if (cIdx >= 0) marks.removeAt(cIdx)
+                        onInteraction()
+                    }
+                }
+            })
+        }
+
+        val pageW = if (localPageSize.width > 0f) localPageSize.width else (pageCanvasSizes[page]?.width ?: 1f)
+        val pageH = if (localPageSize.height > 0f) localPageSize.height else (pageCanvasSizes[page]?.height ?: 1f)
+
+        // ── Intentional Spatial Placement Layer for Insertion Tools (Text, StickyNote, Image) ──
+        val insertionToolActive = activeTool in setOf(
+            PdfEditTool.Text, PdfEditTool.StickyNote, PdfEditTool.Image
+        )
+        if (insertionToolActive) {
+            Box(Modifier.matchParentSize().pointerInput(page, activeTool, marks.size, stickyNotes.size, selectedMarkupIndex, activeImageId, selectedStickyNoteId) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+
+                    // 1. If an existing element is already selected, let its transform / editor layer handle touches within its bounds
+                    if (activeTool == PdfEditTool.Text) {
+                        val sel = marks.getOrNull(selectedMarkupIndex)?.takeIf { (it is PdfMarkup.TextBoxMarkup || it is PdfMarkup.NoteMarkup) && it.isTransformable() }
+                        val selBounds = sel?.movableBounds()
+                        if (selBounds != null && selBounds.inflate(transformPadPx).contains(down.position)) return@awaitEachGesture
+                    } else if (activeTool == PdfEditTool.Image) {
+                        val selImg = marks.firstOrNull { it is PdfMarkup.ImageMarkup && it.id == activeImageId } as? PdfMarkup.ImageMarkup
+                        val selImgBounds = selImg?.let { Rect(min(it.start.x, it.end.x), min(it.start.y, it.end.y), max(it.start.x, it.end.x), max(it.start.y, it.end.y)) }
+                        if (selImgBounds != null && selImgBounds.inflate(transformPadPx).contains(down.position)) return@awaitEachGesture
+                    }
+
+                    // 2. Prevent collision with existing Sticky Notes: if down lands on a note, focus/unfold it without placing a new one
+                    if (activeTool == PdfEditTool.StickyNote) {
+                        val hitNote = stickyNotes.lastOrNull { note ->
+                            val px = note.xNorm * pageW
+                            val py = note.yNorm * pageH
+                            val pw = if (note.isFolded) with(localDensity) { 38.dp.toPx() } else (note.widthNorm * pageW).coerceAtLeast(with(localDensity) { 160.dp.toPx() })
+                            val ph = if (note.isFolded) with(localDensity) { 38.dp.toPx() } else (note.heightNorm * pageH).coerceAtLeast(with(localDensity) { 120.dp.toPx() })
+                            Rect(px, py, px + pw, py + ph).contains(down.position)
+                        }
+                        if (hitNote != null) {
+                            onSelectMarkup(-1)
+                            onActiveImageIdChanged(null)
+                            onSelectStickyNote(hitNote.id)
+                            onShowControls()
+                            onInteraction()
+                            return@awaitEachGesture
+                        }
+                    }
+
+                    // 3. Multi-touch handling: Two-finger pan & pinch-to-zoom delegation
+                    if (currentEvent.changes.count { it.pressed } >= 2) {
+                        do {
+                            val event = awaitPointerEvent()
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                        return@awaitEachGesture
+                    }
+
+                    // 4. Track single-pointer movement vs intentional tap
+                    var movedPastSlop = false
+                    var isTwoFingerTransform = false
+                    val startPos = down.position
+                    val touchSlop = viewConfiguration.touchSlop
+                    var upOrCancel: PointerInputChange? = null
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (isTwoFingerTransform) {
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                            if (event.changes.none { it.pressed }) break
+                            continue
+                        }
+
+                        if (event.changes.count { it.pressed } >= 2) {
+                            isTwoFingerTransform = true
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid(useCurrent = true)
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                onTransformGesture?.invoke(centroid, panChange, zoomChange)
+                            }
+                            event.changes.forEach { it.consume() }
+                            continue
+                        }
+
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || !change.pressed) {
+                            upOrCancel = change
+                            break
+                        }
+
+                        if ((change.position - startPos).getDistance() > touchSlop) {
+                            movedPastSlop = true
+                        }
+                    }
+
+                    if (isTwoFingerTransform || movedPastSlop) {
+                        return@awaitEachGesture
+                    }
+
+                    // 5. Intentional discrete tap completed!
+                    val tapPos = upOrCancel?.position ?: startPos
+                    val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
+
+                    when (activeTool) {
+                        PdfEditTool.Text -> {
+                            val hitIdx = marks.indexOfLast { (it is PdfMarkup.TextBoxMarkup || it is PdfMarkup.NoteMarkup) && it.hitTest(tapPos, ocrBlocks, frame) }
+                            if (hitIdx >= 0) {
+                                val hit = marks[hitIdx]
+                                onActiveImageIdChanged(null)
+                                onSelectStickyNote(null)
+                                onSelectMarkup(hitIdx)
+                                val hitId = when (hit) {
+                                    is PdfMarkup.TextBoxMarkup -> hit.id
+                                    is PdfMarkup.NoteMarkup -> hit.id
+                                    else -> null
+                                }
+                                if (hitId != null) onEditAnnotation(hitId)
+                                onShowControls()
+                                onInteraction()
+                            } else {
+                                onSelectMarkup(-1)
+                                onActiveImageIdChanged(null)
+                                onSelectStickyNote(null)
+                                onPlaceText(tapPos)
+                                onInteraction()
+                            }
+                        }
+                        PdfEditTool.StickyNote -> {
+                            val hitNote = stickyNotes.lastOrNull { note ->
+                                val px = note.xNorm * pageW
+                                val py = note.yNorm * pageH
+                                val pw = if (note.isFolded) with(localDensity) { 38.dp.toPx() } else (note.widthNorm * pageW).coerceAtLeast(with(localDensity) { 160.dp.toPx() })
+                                val ph = if (note.isFolded) with(localDensity) { 38.dp.toPx() } else (note.heightNorm * pageH).coerceAtLeast(with(localDensity) { 120.dp.toPx() })
+                                Rect(px, py, px + pw, py + ph).contains(tapPos)
+                            }
+                            if (hitNote != null) {
+                                onSelectMarkup(-1)
+                                onActiveImageIdChanged(null)
+                                onSelectStickyNote(hitNote.id)
+                                onShowControls()
+                                onInteraction()
+                            } else {
+                                onSelectMarkup(-1)
+                                onActiveImageIdChanged(null)
+                                onSelectStickyNote(null)
+                                onPlaceStickyNote(tapPos)
+                                onInteraction()
+                            }
+                        }
+                        PdfEditTool.Image -> {
+                            val hitImg = marks.lastOrNull { it is PdfMarkup.ImageMarkup && it.hitTest(tapPos, ocrBlocks, frame) } as? PdfMarkup.ImageMarkup
+                            if (hitImg != null) {
+                                onSelectMarkup(-1)
+                                onSelectStickyNote(null)
+                                onActiveImageIdChanged(hitImg.id)
+                                onShowControls()
+                                onInteraction()
+                            } else {
+                                onSelectMarkup(-1)
+                                onActiveImageIdChanged(null)
+                                onSelectStickyNote(null)
+                                onPlaceImage?.invoke(tapPos)
+                                onInteraction()
+                            }
+                        }
+                        else -> Unit
                     }
                 }
             })
         }
 
         // ── Transform layer: move + resize the selected shape / text / note ──────
-        val selForXf = marks.getOrNull(selectedMarkupIndex)?.takeIf { activeTool == PdfEditTool.None && it.isTransformable() }
+        val selForXf = marks.getOrNull(selectedMarkupIndex)?.takeIf {
+            (activeTool == PdfEditTool.None || (activeTool == PdfEditTool.Text && (it is PdfMarkup.TextBoxMarkup || it is PdfMarkup.NoteMarkup))) && it.isTransformable()
+        }
         val selXfBounds = selForXf?.movableBounds()
         if (selForXf != null && selXfBounds != null) {
-            val density2 = LocalDensity.current
-            val pad = 30f
-            val boxL = selXfBounds.left - pad
-            val boxT = selXfBounds.top - pad
-            val boxW = selXfBounds.width + pad * 2
-            val boxH = selXfBounds.height + pad * 2
+            val boxL = selXfBounds.left - transformPadPx
+            val boxT = selXfBounds.top - transformPadPx
+            val boxW = selXfBounds.width + transformPadPx * 2
+            val boxH = selXfBounds.height + transformPadPx * 2
+            val framePadPx = with(localDensity) { 6.dp.toPx() }
             Box(
                 Modifier
                     .offset { IntOffset(boxL.roundToInt(), boxT.roundToInt()) }
-                    .size(with(density2) { boxW.toDp() }, with(density2) { boxH.toDp() })
+                    .size(with(localDensity) { boxW.toDp() }, with(localDensity) { boxH.toDp() })
                     .pointerInput(page, selectedMarkupIndex) {
                         var mode = 0 // 1 = move, 2 = resize
                         detectDragGestures(
@@ -482,7 +784,13 @@ internal fun PdfContinuousPage(
                                 val bb = cur?.movableBounds()
                                 // Convert the box-local touch back to page space.
                                 val pPage = Offset(local.x + boxL, local.y + boxT)
-                                mode = if (bb != null && cur.isResizable() && (pPage - bb.bottomRight).getDistance() <= 60f) 2 else 1
+                                val brGizmo = bb?.let { Offset(it.right + framePadPx, it.bottom + framePadPx) }
+                                val isNearResize = if (bb != null && brGizmo != null) {
+                                    val d1 = (pPage.x - brGizmo.x) * (pPage.x - brGizmo.x) + (pPage.y - brGizmo.y) * (pPage.y - brGizmo.y)
+                                    val d2 = (pPage.x - bb.bottomRight.x) * (pPage.x - bb.bottomRight.x) + (pPage.y - bb.bottomRight.y) * (pPage.y - bb.bottomRight.y)
+                                    d1 <= handleHitRadiusSq || d2 <= handleHitRadiusSq
+                                } else false
+                                mode = if (bb != null && cur.isResizable() && isNearResize) 2 else 1
                                 onInteraction()
                             },
                             onDrag = { ch, drag ->
@@ -500,113 +808,109 @@ internal fun PdfContinuousPage(
             )
         }
 
-        if (drawingToolActive) {
-            HardwareInkingSurface(
-                modifier = Modifier.matchParentSize(),
-                state = inFlightState,
-                page = page,
-                activeTool = activeTool,
-                currentColor = currentColor,
-                currentStrokeWidth = currentStrokeWidth,
-                onInteraction = onInteraction,
-                onStrokeCommitted = { newMarkup, onDrawn ->
-                    pendingHandoffClear.set(onDrawn)
-                    marks.add(newMarkup)
-                    onMarkAdded()
-                }
-            )
-        }
-
-        if (activeTool == PdfEditTool.Eraser) {
-            Box(Modifier.matchParentSize().pointerInput(page) {
-                detectTapGestures { p ->
-                    val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
-                    val idx = marks.indexOfLast { it.hitTest(p, ocrBlocks, frame) }
-                    if (idx >= 0) marks.removeAt(idx)
-                    onInteraction()
-                }
-            }.pointerInput(page) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
-                    val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
-                    val idx = marks.indexOfLast { it.hitTest(down.position, ocrBlocks, frame) }
-                    if (idx >= 0) marks.removeAt(idx)
-                    onInteraction()
-                    val pointerId = down.id
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == pointerId }
-                        if (change == null || !change.pressed) break
-                        change.consume()
-                        val batched = extractDigitizerBatchPoints(change, event)
-                        for (i in 0 until batched.size) {
-                            val bIdx = marks.indexOfLast { it.hitTest(batched[i], ocrBlocks, frame) }
-                            if (bIdx >= 0) marks.removeAt(bIdx)
+        // ── Sticky Note Cards Overlay ──────────────────────────────────────────
+        if (pageW > 10f && pageH > 10f) {
+            stickyNotes.forEach { note ->
+                val isSelectedNote = selectedStickyNoteId == note.id
+                StickyNoteCard(
+                    annotation = note,
+                    pageWidthPx = pageW,
+                    pageHeightPx = pageH,
+                    isToolActive = activeTool == PdfEditTool.StickyNote,
+                    isSelected = isSelectedNote,
+                    onSelect = {
+                        onSelectStickyNote(note.id)
+                        onSelectMarkup(-1)
+                        onActiveImageIdChanged(null)
+                        onInteraction()
+                    },
+                    onDeselect = {
+                        if (selectedStickyNoteId == note.id) {
+                            onSelectStickyNote(null)
                         }
-                        val cIdx = marks.indexOfLast { it.hitTest(change.position, ocrBlocks, frame) }
-                        if (cIdx >= 0) marks.removeAt(cIdx)
+                    },
+                    onAnnotationChanged = { updated ->
+                        onStickyNoteChanged(updated)
+                        onInteraction()
+                    },
+                    onDelete = {
+                        onDeleteStickyNote(note.id)
+                        if (selectedStickyNoteId == note.id) {
+                            onSelectStickyNote(null)
+                        }
                         onInteraction()
                     }
-                }
-            })
+                )
+            }
         }
 
-        if (activeTool == PdfEditTool.Text || activeTool == PdfEditTool.Note) {
-            Box(Modifier.matchParentSize().pointerInput(page, activeTool) {
-                detectTapGestures { p -> if (activeTool == PdfEditTool.Text) onPlaceText(p) else onPlaceNote(p); onInteraction() }
-            })
-        }
-
-        if (activeTool == PdfEditTool.Image && activeImageId != null) {
-            Box(Modifier.matchParentSize()
-                .pointerInput(page, activeImageId) {
-                    detectTapGestures { p ->
-                        val hit = marks.lastOrNull { it is PdfMarkup.ImageMarkup && it.hitTest(p) } as? PdfMarkup.ImageMarkup
-                        if (hit != null) { onActiveImageIdChanged(hit.id); onShowControls() }
-                        else { onActiveImageIdChanged(null); onActiveToolChanged(PdfEditTool.None); onToggleControls() }
-                    }
-                }
-                .pointerInput(page, activeImageId) {
-                    var resizing = false
-                    detectDragGestures(
-                        onDragStart = { p ->
-                            val idx = marks.indexOfLast { it is PdfMarkup.ImageMarkup && it.id == activeImageId }
-                            val img = marks.getOrNull(idx) as? PdfMarkup.ImageMarkup
-                            // Generous grab radius around the bottom-right handle (Apple-style
-                            // touch target much larger than the visual handle).
-                            resizing = img != null && (p - img.end).getDistance() <= 64f; onInteraction()
-                        },
-                        onDrag = { ch, drag ->
-                            ch.consume()
-                            val idx = marks.indexOfLast { it is PdfMarkup.ImageMarkup && it.id == activeImageId }
-                            val img = marks.getOrNull(idx) as? PdfMarkup.ImageMarkup ?: return@detectDragGestures
-                            // Clamp to the page bounds so the image can never be dragged past the
-                            // page edge (where it would be clipped and hidden behind the next page).
-                            val pw = size.width.toFloat(); val ph = size.height.toFloat()
-                            marks[idx] = if (resizing) {
-                                img.copy(end = Offset(
-                                    (img.end.x + drag.x).coerceIn(img.start.x + 24f, pw),
-                                    (img.end.y + drag.y).coerceIn(img.start.y + 24f, ph)
-                                ))
-                            } else {
-                                val iw = img.end.x - img.start.x; val ih = img.end.y - img.start.y
-                                val nx = (img.start.x + drag.x).coerceIn(0f, (pw - iw).coerceAtLeast(0f))
-                                val ny = (img.start.y + drag.y).coerceIn(0f, (ph - ih).coerceAtLeast(0f))
-                                img.copy(start = Offset(nx, ny), end = Offset(nx + iw, ny + ih))
+        // ── Transform layer: move + resize the selected image / signature ──────
+        val activeImg = marks.firstOrNull { it is PdfMarkup.ImageMarkup && it.id == activeImageId } as? PdfMarkup.ImageMarkup
+        if (activeImg != null && (activeTool == PdfEditTool.None || activeTool == PdfEditTool.Image || activeTool == PdfEditTool.Signature)) {
+            val imgBounds = Rect(
+                min(activeImg.start.x, activeImg.end.x),
+                min(activeImg.start.y, activeImg.end.y),
+                max(activeImg.start.x, activeImg.end.x),
+                max(activeImg.start.y, activeImg.end.y)
+            )
+            val boxL = imgBounds.left - transformPadPx
+            val boxT = imgBounds.top - transformPadPx
+            val boxW = imgBounds.width + transformPadPx * 2
+            val boxH = imgBounds.height + transformPadPx * 2
+            Box(
+                Modifier
+                    .offset { IntOffset(boxL.roundToInt(), boxT.roundToInt()) }
+                    .size(with(localDensity) { boxW.toDp() }, with(localDensity) { boxH.toDp() })
+                    .pointerInput(page, activeImageId) {
+                        var resizing = false
+                        detectDragGestures(
+                            onDragStart = { local ->
+                                val pPage = Offset(local.x + boxL, local.y + boxT)
+                                val idx = marks.indexOfLast { it is PdfMarkup.ImageMarkup && it.id == activeImageId }
+                                val img = marks.getOrNull(idx) as? PdfMarkup.ImageMarkup
+                                if (img != null) {
+                                    val br = Offset(max(img.start.x, img.end.x), max(img.start.y, img.end.y))
+                                    val dSq = (pPage.x - br.x) * (pPage.x - br.x) + (pPage.y - br.y) * (pPage.y - br.y)
+                                    resizing = dSq <= handleHitRadiusSq
+                                } else {
+                                    resizing = false
+                                }
+                                onInteraction()
+                            },
+                            onDrag = { ch, drag ->
+                                ch.consume()
+                                val idx = marks.indexOfLast { it is PdfMarkup.ImageMarkup && it.id == activeImageId }
+                                val img = marks.getOrNull(idx) as? PdfMarkup.ImageMarkup ?: return@detectDragGestures
+                                val pw = (pageCanvasSizes[page]?.width ?: size.width.toFloat()).coerceAtLeast(100f)
+                                val ph = (pageCanvasSizes[page]?.height ?: size.height.toFloat()).coerceAtLeast(100f)
+                                val minSize = with(localDensity) { 32.dp.toPx() }
+                                marks[idx] = if (resizing) {
+                                    img.copy(end = Offset(
+                                        (img.end.x + drag.x).coerceIn(img.start.x + minSize, pw),
+                                        (img.end.y + drag.y).coerceIn(img.start.y + minSize, ph)
+                                    ))
+                                } else {
+                                    val iw = img.end.x - img.start.x
+                                    val ih = img.end.y - img.start.y
+                                    val nx = (img.start.x + drag.x).coerceIn(0f, (pw - iw).coerceAtLeast(0f))
+                                    val ny = (img.start.y + drag.y).coerceIn(0f, (ph - ih).coerceAtLeast(0f))
+                                    img.copy(start = Offset(nx, ny), end = Offset(nx + iw, ny + ih))
+                                }
+                                onInteraction()
                             }
-                            onInteraction()
-                        }
-                    )
-                }
+                        )
+                    }
             )
         }
 
         val csz = pageCanvasSizes[page]
 
         // ── Contextual Edit / Delete bar for the selected shape / text / note ──────
-        if (activeTool == PdfEditTool.None && csz != null && csz.width > 0f) {
-            marks.getOrNull(selectedMarkupIndex)?.takeIf { it.isTransformable() }?.let { selM ->
+        val allowContextualBar = (activeTool == PdfEditTool.None || activeTool == PdfEditTool.Text) && csz != null && csz.width > 0f
+        if (allowContextualBar) {
+            marks.getOrNull(selectedMarkupIndex)?.takeIf {
+                (activeTool == PdfEditTool.None || (it is PdfMarkup.TextBoxMarkup || it is PdfMarkup.NoteMarkup)) && it.isTransformable()
+            }?.let { selM ->
                 selM.movableBounds()?.let { b ->
                     val density = LocalDensity.current
                     val gapPx = with(density) { 12.dp.toPx() }
@@ -651,6 +955,48 @@ internal fun PdfContinuousPage(
                                 .padding(horizontal = 16.dp, vertical = 9.dp)
                         )
                     }
+                }
+            }
+
+            val activeImgForBar = marks.firstOrNull { it is PdfMarkup.ImageMarkup && it.id == activeImageId } as? PdfMarkup.ImageMarkup
+            val activeImgIdx = if (activeImgForBar != null) marks.indexOfLast { it is PdfMarkup.ImageMarkup && it.id == activeImageId } else -1
+            if (activeImgForBar != null && activeImgIdx >= 0) {
+                val b = Rect(
+                    min(activeImgForBar.start.x, activeImgForBar.end.x),
+                    min(activeImgForBar.start.y, activeImgForBar.end.y),
+                    max(activeImgForBar.start.x, activeImgForBar.end.x),
+                    max(activeImgForBar.start.y, activeImgForBar.end.y)
+                )
+                val density = LocalDensity.current
+                val gapPx = with(density) { 12.dp.toPx() }
+                val barHpx = with(density) { 44.dp.toPx() }
+                val barWpx = with(density) { 88.dp.toPx() }
+                val placeBelow = b.top < barHpx + gapPx
+                val by = (if (placeBelow) b.bottom + gapPx else b.top - barHpx - gapPx)
+                    .coerceIn(0f, (csz.height - barHpx).coerceAtLeast(0f))
+                val bx = ((b.left + b.right) / 2f - barWpx / 2f)
+                    .coerceIn(0f, (csz.width - barWpx).coerceAtLeast(0f))
+
+                Row(
+                    Modifier
+                        .offset { IntOffset(bx.roundToInt(), by.roundToInt()) }
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xFF1C1F26).copy(0.97f))
+                        .border(1.dp, Color.White.copy(0.14f), RoundedCornerShape(22.dp))
+                        .padding(horizontal = 4.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BasicText(
+                        "Delete",
+                        style = TextStyle(Color(0xFFFF6B6B), 13.sp, FontWeight.SemiBold),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable {
+                                onDeleteMarkup(activeImgIdx)
+                                onActiveImageIdChanged(null)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                    )
                 }
             }
 
@@ -706,5 +1052,91 @@ internal fun PdfContinuousPage(
                     }
                 }
         }
+    }
+}
+
+/**
+ * Renders high-contrast, scalable selection boundary handles (visual anchors and action resize handle)
+ * for placed annotations (Images, Signatures, Text Boxes, Shapes).
+ *
+ * Sizing:
+ * - Corner scale / anchor circles: 17dp diameter (8.5dp radius)
+ * - Action / resize anchor handle: 23dp diameter (11.5dp radius)
+ * Styling:
+ * - Pure white interior fill
+ * - 2dp - 2.5dp high-contrast accent stroke
+ * - Outer dark rim + subtle drop shadow for crisp visibility on both pure white paper and dark PDF backgrounds
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionGizmo(
+    bounds: Rect,
+    isResizable: Boolean,
+    accentColor: Color = Color(0xFF0A84FF)
+) {
+    val cornerRadius = 8.5.dp.toPx()
+    val resizeRadius = 11.5.dp.toPx()
+
+    val cornerStrokeWidth = 2.dp.toPx()
+    val resizeStrokeWidth = 2.5.dp.toPx()
+    val frameStrokeWidth = 2.dp.toPx()
+    val frameCornerRadius = 8.dp.toPx()
+
+    val shadowDropColor = Color(0x38000000)
+    val outerRimColor = Color(0xFF1A1A1E)
+
+    // Bounding selection frame: outer contrast shadow + accent frame line
+    drawRoundRect(
+        color = shadowDropColor,
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        cornerRadius = CornerRadius(frameCornerRadius, frameCornerRadius),
+        style = Stroke(frameStrokeWidth + 1.5.dp.toPx())
+    )
+    drawRoundRect(
+        color = accentColor,
+        topLeft = bounds.topLeft,
+        size = bounds.size,
+        cornerRadius = CornerRadius(frameCornerRadius, frameCornerRadius),
+        style = Stroke(frameStrokeWidth)
+    )
+
+    // Passive corner anchor circles (Top-Left, Top-Right, Bottom-Left)
+    val corners = listOf(
+        bounds.topLeft,
+        Offset(bounds.right, bounds.top),
+        Offset(bounds.left, bounds.bottom)
+    )
+    corners.forEach { c ->
+        drawCircle(shadowDropColor, cornerRadius + 1.5.dp.toPx(), c)
+        drawCircle(outerRimColor, cornerRadius + 0.5.dp.toPx(), c, style = Stroke(1.dp.toPx()))
+        drawCircle(Color.White, cornerRadius, c)
+        drawCircle(accentColor, cornerRadius, c, style = Stroke(cornerStrokeWidth))
+    }
+
+    // Prominent Bottom-Right Action / Resize Anchor
+    if (isResizable) {
+        val br = Offset(bounds.right, bounds.bottom)
+        drawCircle(shadowDropColor, resizeRadius + 2.dp.toPx(), br)
+        drawCircle(outerRimColor, resizeRadius + 0.5.dp.toPx(), br, style = Stroke(1.2.dp.toPx()))
+        drawCircle(Color.White, resizeRadius, br)
+        drawCircle(accentColor, resizeRadius, br, style = Stroke(resizeStrokeWidth))
+
+        // Diagonal resize grip glyph with rounded stroke caps
+        val glyphSpan = 4.2.dp.toPx()
+        val glyphSep = 1.2.dp.toPx()
+        val glyphStroke = 2.2.dp.toPx()
+        drawLine(
+            accentColor,
+            Offset(br.x - glyphSpan, br.y + glyphSep),
+            Offset(br.x + glyphSep, br.y - glyphSpan),
+            strokeWidth = glyphStroke,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            accentColor,
+            Offset(br.x - glyphSep, br.y + glyphSpan),
+            Offset(br.x + glyphSpan, br.y - glyphSep),
+            strokeWidth = glyphStroke,
+            cap = StrokeCap.Round
+        )
     }
 }
