@@ -492,7 +492,7 @@ internal fun PdfContinuousPage(
 
 
 
-        if (drawingToolActive || activeTool == PdfEditTool.Laser) {
+        if (drawingToolActive) {
             HardwareInkingSurface(
                 modifier = Modifier.matchParentSize(),
                 state = inFlightState,

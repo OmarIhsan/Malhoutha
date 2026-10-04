@@ -6,7 +6,9 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RadialGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -34,9 +36,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
-import androidx.input.motionprediction.MotionEventPredictor
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -58,7 +60,8 @@ internal data class InkingRenderSegment(
     val isClear: Boolean = false,
     val isLaser: Boolean = false,
     val laserStrokes: List<CompletedLaserStroke>? = null,
-    val laserTip: Offset? = null
+    val laserTip: Offset? = null,
+    val laserScale: Float = 1.0f
 )
 
 internal typealias InkingParameter = InkingRenderSegment
@@ -81,19 +84,17 @@ internal typealias InkingParameter = InkingRenderSegment
 internal fun HardwareInkingSurface(
     modifier: Modifier = Modifier,
     state: InFlightInkState,
-    page: Int,
+    page: Int = -1,
     activeTool: PdfEditTool,
     shapeMode: InkShapeMode = InkShapeMode.Free,
     currentColor: Color,
     currentStrokeWidth: Float,
+    pageScale: Float = 1.0f,
     onInteraction: () -> Unit,
     onStrokeCommitted: (PdfMarkup, onCommittedDrawn: () -> Unit) -> Unit,
     onTransformGesture: ((centroid: Offset, pan: Offset, zoom: Float) -> Unit)? = null
 ) {
     val hostView = LocalView.current
-    val predictor = remember(hostView) {
-        runCatching { MotionEventPredictor.newInstance(hostView) }.getOrNull()
-    }
 
     val paint = remember {
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -107,60 +108,100 @@ internal fun HardwareInkingSurface(
     val frontBufferPath = remember { android.graphics.Path() }
     val rendererRef = remember { arrayOfNulls<CanvasFrontBufferedRenderer<InkingRenderSegment>>(1) }
 
-    // Jetpack Low-Latency Laser Pointer Skia pipeline
+    // Jetpack Low-Latency Laser Pointer Photonic Skia pipeline (100% GPU accelerated, 1:1 Viewport Screen Space)
     val density = LocalDensity.current
-    val laserTipHaloRadiusPx = with(density) { 8.dp.toPx() }
-    val laserTipCoreRadiusPx = with(density) { 4.5.dp.toPx() }
-    val laserTipHotRadiusPx = with(density) { 2.dp.toPx() }
+    val laserGlowRadiusPx = with(density) { 10.dp.toPx() } // Baseline glow = 10dp
+    val laserCoreRadiusPx = with(density) { 4.5.dp.toPx() } // Baseline core = 4.5dp
+    val laserHotRadiusPx = with(density) { 1.8.dp.toPx() } // Radiant white center core
+    val laserFlareRadiusPx = with(density) { 14.dp.toPx() } // Lens flare radius: 14dp
+
+    val laserScreenXfermode = remember { PorterDuffXfermode(PorterDuff.Mode.SCREEN) }
+
+    // Outer soft ambient corona (GPU multi-ring scattering replacement for BlurMaskFilter)
+    val laserOuterGlowPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            color = 0x28FF1744.toInt() // 16% soft ambient corona
+            strokeWidth = laserGlowRadiusPx * 1.5f
+            xfermode = laserScreenXfermode
+        }
+    }
 
     val laserGlowPaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             color = 0x66FF1744.toInt() // 40% luminous neon red
-            strokeWidth = with(density) { 12.dp.toPx() }
+            strokeWidth = laserGlowRadiusPx
+            xfermode = laserScreenXfermode
         }
     }
 
     val laserCorePaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             color = 0xFFFF2A55.toInt() // 100% solid vivid crimson
-            strokeWidth = with(density) { 4.5.dp.toPx() }
+            strokeWidth = laserCoreRadiusPx
+            xfermode = laserScreenXfermode
         }
     }
 
     val laserCenterHotPaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             color = 0xFFFFFFFF.toInt() // White-hot radiant center
-            strokeWidth = with(density) { 1.8.dp.toPx() }
+            strokeWidth = laserHotRadiusPx
+            xfermode = laserScreenXfermode
         }
     }
 
-    val laserBeadGlowPaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0x66FF1744.toInt()
-        }
+    val flareColors = remember {
+        intArrayOf(
+            0xFFFFFFFF.toInt(),
+            0xFFFF2A55.toInt(),
+            0x66FF1744.toInt(),
+            0x00FF1744.toInt()
+        )
     }
+    val flareStops = remember { floatArrayOf(0.0f, 0.25f, 0.55f, 1.0f) }
 
-    val laserBeadCorePaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+    val laserFlarePaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
             style = Paint.Style.FILL
-            color = 0xFFFF2A55.toInt()
+            xfermode = laserScreenXfermode
         }
     }
 
     val laserBeadHotPaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            isAntiAlias = true
+            isDither = true
+            isFilterBitmap = true
             style = Paint.Style.FILL
             color = 0xFFFFFFFF.toInt()
+            xfermode = laserScreenXfermode
         }
     }
 
@@ -170,103 +211,162 @@ internal fun HardwareInkingSurface(
     val activeLaserPath = remember { android.graphics.Path() }
     val isLaserPressedRef = remember { booleanArrayOf(false) }
     val currentLaserTipRef = remember { arrayOfNulls<Offset>(1) }
-    val isChoreographerScheduled = remember { booleanArrayOf(false) }
+    val isDecayLoopRunning = remember { booleanArrayOf(false) }
+    val laserVelocityRef = remember { floatArrayOf(0f) }
+    val laserScaleRef = remember { floatArrayOf(1.0f) }
+    val lastEventTimeRef = remember { longArrayOf(0L) }
+    val lastEventPosRef = remember { arrayOfNulls<Offset>(1) }
 
-    fun updateLaserSplinePath(points: List<Offset>, predicted: List<Offset>, targetPath: android.graphics.Path) {
+    fun getLaserScale(velocity: Float): Float {
+        // v in px/ms: slow pointing <= 0.4 px/ms (scale = 1.0x); fast slash >= 2.4 px/ms (scale = 1.35x)
+        val normalized = ((velocity - 0.4f) / 2.0f).coerceIn(0f, 1f)
+        return 1.0f + 0.35f * normalized
+    }
+
+    fun updateFrontBufferPath(points: List<Offset>, targetPath: android.graphics.Path = frontBufferPath) {
         targetPath.reset()
-        val totalCount = points.size + predicted.size
+        val totalCount = points.size
         if (totalCount == 0) return
 
-        val getPt: (Int) -> Offset = { idx ->
-            if (idx < points.size) points[idx] else predicted[idx - points.size]
-        }
-
-        val p0 = getPt(0)
+        val p0 = points[0]
         targetPath.moveTo(p0.x, p0.y)
         if (totalCount == 1) {
             targetPath.lineTo(p0.x + 0.1f, p0.y + 0.1f)
             return
         }
         if (totalCount == 2) {
-            val p1 = getPt(1)
+            val p1 = points[1]
             targetPath.lineTo(p1.x, p1.y)
             return
         }
         for (i in 1 until totalCount - 1) {
-            val pt0 = getPt(i)
-            val pt1 = getPt(i + 1)
+            val pt0 = points[i]
+            val pt1 = points[i + 1]
             val midX = (pt0.x + pt1.x) / 2f
             val midY = (pt0.y + pt1.y) / 2f
             targetPath.quadTo(pt0.x, pt0.y, midX, midY)
         }
-        val pLast = getPt(totalCount - 1)
+        val pLast = points[totalCount - 1]
         targetPath.lineTo(pLast.x, pLast.y)
+    }
+
+    fun drawCrispScreenSpaceLaser(
+        canvas: Canvas,
+        activePath: android.graphics.Path?,
+        beadPoint: Offset?,
+        completedStrokes: List<CompletedLaserStroke>?,
+        activeScale: Float = 1.0f
+    ) {
+        val now = SystemClock.uptimeMillis()
+        val invScale = 1.0f / pageScale.coerceAtLeast(0.01f)
+
+        // 1. Render completed decaying strokes with Thermal Contraction Decay (Cooling Light Effect)
+        if (!completedStrokes.isNullOrEmpty()) {
+            for (i in 0 until completedStrokes.size) {
+                val stroke = completedStrokes[i]
+                val elapsed = now - stroke.birthTime
+
+                val baseGlow = (if (stroke.glowWidth > 0f) stroke.glowWidth else laserGlowRadiusPx) * invScale
+                val baseCore = (if (stroke.coreWidth > 0f) stroke.coreWidth else laserCoreRadiusPx) * invScale
+                val baseHot = (if (stroke.hotWidth > 0f) stroke.hotWidth else laserHotRadiusPx) * invScale
+
+                if (elapsed < LASER_STROKE_HOLD_DURATION_MS) {
+                    // Phase 1: High-Energy Hold (0ms to 1200ms) - 100% solid, fully luminous, anchored
+                    laserOuterGlowPaint.strokeWidth = baseGlow * 1.5f
+                    laserOuterGlowPaint.alpha = 0x28
+                    canvas.drawPath(stroke.path, laserOuterGlowPaint)
+
+                    laserGlowPaint.strokeWidth = baseGlow
+                    laserGlowPaint.alpha = 0x66
+                    canvas.drawPath(stroke.path, laserGlowPaint)
+
+                    laserCorePaint.strokeWidth = baseCore
+                    laserCorePaint.alpha = 255
+                    canvas.drawPath(stroke.path, laserCorePaint)
+
+                    laserCenterHotPaint.strokeWidth = baseHot
+                    laserCenterHotPaint.alpha = 255
+                    canvas.drawPath(stroke.path, laserCenterHotPaint)
+                } else if (elapsed < LASER_STROKE_HOLD_DURATION_MS + LASER_STROKE_FADE_DURATION_MS) {
+                    // Phase 2: Thermal Evaporation (1200ms to 1600ms)
+                    val p = ((elapsed - LASER_STROKE_HOLD_DURATION_MS).toFloat() / LASER_STROKE_FADE_DURATION_MS).coerceIn(0f, 1f)
+                    val alphaProgress = (1.0f - p) * (1.0f - p)
+                    val widthFactor = 1.0f - 0.45f * p
+
+                    val curGlowW = baseGlow * widthFactor
+                    val curCoreW = baseCore * widthFactor
+                    val curHotW = baseHot * widthFactor
+
+                    laserOuterGlowPaint.strokeWidth = curGlowW * 1.5f
+                    laserOuterGlowPaint.alpha = (0x28 * alphaProgress).toInt()
+                    canvas.drawPath(stroke.path, laserOuterGlowPaint)
+
+                    laserGlowPaint.strokeWidth = curGlowW
+                    laserGlowPaint.alpha = (0x66 * alphaProgress).toInt()
+                    canvas.drawPath(stroke.path, laserGlowPaint)
+
+                    laserCorePaint.strokeWidth = curCoreW
+                    laserCorePaint.alpha = (255 * alphaProgress).toInt()
+                    canvas.drawPath(stroke.path, laserCorePaint)
+
+                    laserCenterHotPaint.strokeWidth = curHotW
+                    laserCenterHotPaint.alpha = (255 * alphaProgress * (1.0f - 0.2f * p)).toInt()
+                    canvas.drawPath(stroke.path, laserCenterHotPaint)
+                }
+            }
+        }
+
+        // 2. Render In-Flight Active Laser Stroke (Solid Neon Filament)
+        if (activePath != null && !activePath.isEmpty) {
+            val curGlowW = laserGlowRadiusPx * activeScale * invScale
+            val curCoreW = laserCoreRadiusPx * activeScale * invScale
+            val curHotW = laserHotRadiusPx * activeScale * invScale
+
+            laserOuterGlowPaint.strokeWidth = curGlowW * 1.5f
+            laserOuterGlowPaint.alpha = 0x28
+            canvas.drawPath(activePath, laserOuterGlowPaint)
+
+            laserGlowPaint.strokeWidth = curGlowW
+            laserGlowPaint.alpha = 0x66
+            canvas.drawPath(activePath, laserGlowPaint)
+
+            laserCorePaint.strokeWidth = curCoreW
+            laserCorePaint.alpha = 255
+            canvas.drawPath(activePath, laserCorePaint)
+
+            laserCenterHotPaint.strokeWidth = curHotW
+            laserCenterHotPaint.alpha = 255
+            canvas.drawPath(activePath, laserCenterHotPaint)
+        }
+
+        // 3. Render Radial Lens Flare / Nib Glint & Radiant Hot Bead directly at pointer head
+        if (beadPoint != null) {
+            val flareRadius = laserFlareRadiusPx * invScale
+            laserFlarePaint.shader = RadialGradient(
+                beadPoint.x,
+                beadPoint.y,
+                flareRadius,
+                flareColors,
+                flareStops,
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(beadPoint.x, beadPoint.y, flareRadius, laserFlarePaint)
+
+            // Radiant white-hot core
+            laserBeadHotPaint.alpha = 255
+            canvas.drawCircle(beadPoint.x, beadPoint.y, laserHotRadiusPx * activeScale * 1.25f * invScale, laserBeadHotPaint)
+        }
     }
 
     fun drawNativeLaserStroke(
         canvas: Canvas,
         activePath: android.graphics.Path?,
         beadPoint: Offset?,
-        completedStrokes: List<CompletedLaserStroke>?
-    ) {
-        val now = SystemClock.uptimeMillis()
+        completedStrokes: List<CompletedLaserStroke>?,
+        activeScale: Float = 1.0f
+    ) = drawCrispScreenSpaceLaser(canvas, activePath, beadPoint, completedStrokes, activeScale)
 
-        // 1. Render completed decaying strokes
-        if (!completedStrokes.isNullOrEmpty()) {
-            for (i in 0 until completedStrokes.size) {
-                val stroke = completedStrokes[i]
-                val elapsed = now - stroke.birthTime
-                val alpha = if (elapsed < LASER_STROKE_HOLD_DURATION_MS) {
-                    1.0f
-                } else if (elapsed < LASER_STROKE_HOLD_DURATION_MS + LASER_STROKE_FADE_DURATION_MS) {
-                    val progress = (elapsed - LASER_STROKE_HOLD_DURATION_MS).toFloat() / LASER_STROKE_FADE_DURATION_MS
-                    (1.0f - progress).coerceIn(0f, 1f).pow(1.5f)
-                } else {
-                    0f
-                }
-
-                if (alpha > 0f) {
-                    // Pass 1: Diffuse Glow (Corona) - 40% luminous neon red
-                    laserGlowPaint.alpha = (0x66 * alpha).toInt()
-                    canvas.drawPath(stroke.path, laserGlowPaint)
-
-                    // Pass 2: Vivid Crimson Core - 100% solid vivid crimson
-                    laserCorePaint.alpha = (255 * alpha).toInt()
-                    canvas.drawPath(stroke.path, laserCorePaint)
-
-                    // Pass 3: Radiant White Core
-                    laserCenterHotPaint.alpha = (255 * alpha).toInt()
-                    canvas.drawPath(stroke.path, laserCenterHotPaint)
-                }
-            }
-        }
-
-        // 2. Render active in-progress laser path with native anti-aliasing
-        if (activePath != null && !activePath.isEmpty) {
-            laserGlowPaint.alpha = 0x66
-            canvas.drawPath(activePath, laserGlowPaint)
-
-            laserCorePaint.alpha = 255
-            canvas.drawPath(activePath, laserCorePaint)
-
-            laserCenterHotPaint.alpha = 255
-            canvas.drawPath(activePath, laserCenterHotPaint)
-        }
-
-        // 3. Draw leading tip bead directly at (event.x, event.y) / predicted nib
-        if (beadPoint != null) {
-            laserBeadGlowPaint.alpha = 0x66
-            canvas.drawCircle(beadPoint.x, beadPoint.y, laserTipHaloRadiusPx, laserBeadGlowPaint)
-
-            laserBeadCorePaint.alpha = 255
-            canvas.drawCircle(beadPoint.x, beadPoint.y, laserTipCoreRadiusPx, laserBeadCorePaint)
-
-            laserBeadHotPaint.alpha = 255
-            canvas.drawCircle(beadPoint.x, beadPoint.y, laserTipHotRadiusPx, laserBeadHotPaint)
-        }
-    }
-
-    val laserFrameCallback = remember {
+    val laserDecayCallback = remember {
         object : android.view.Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
                 val now = SystemClock.uptimeMillis()
@@ -287,23 +387,24 @@ internal fun HardwareInkingSurface(
 
                 val isPressed = isLaserPressedRef[0]
                 if (hasActive || isPressed) {
-                    val snapshot = synchronized(completedStrokesLock) { ArrayList(completedLaserStrokes) }
-                    val tip = if (isPressed) currentLaserTipRef[0] else null
-                    val path = if (isPressed) activeLaserPath else null
-                    rendererRef[0]?.renderFrontBufferedLayer(
-                        InkingRenderSegment(
-                            tool = PdfEditTool.Laser,
-                            isLaser = true,
-                            path = path,
-                            laserTip = tip,
-                            laserStrokes = snapshot
+                    if (!isPressed) {
+                        val snapshot = synchronized(completedStrokesLock) { ArrayList(completedLaserStrokes) }
+                        rendererRef[0]?.renderFrontBufferedLayer(
+                            InkingRenderSegment(
+                                tool = PdfEditTool.Laser,
+                                isLaser = true,
+                                path = null,
+                                laserTip = null,
+                                laserStrokes = snapshot,
+                                laserScale = 1.0f
+                            )
                         )
-                    )
+                    }
                     android.view.Choreographer.getInstance().postFrameCallback(this)
-                    isChoreographerScheduled[0] = true
+                    isDecayLoopRunning[0] = true
                 } else {
+                    isDecayLoopRunning[0] = false
                     rendererRef[0]?.clear()
-                    isChoreographerScheduled[0] = false
                 }
             }
         }
@@ -311,52 +412,37 @@ internal fun HardwareInkingSurface(
 
     DisposableEffect(activeTool) {
         if (activeTool != PdfEditTool.Laser) {
+            if (isDecayLoopRunning[0]) {
+                android.view.Choreographer.getInstance().removeFrameCallback(laserDecayCallback)
+                isDecayLoopRunning[0] = false
+            }
             synchronized(completedStrokesLock) { completedLaserStrokes.clear() }
             activeLaserPoints.clear()
             activeLaserPath.reset()
             isLaserPressedRef[0] = false
             currentLaserTipRef[0] = null
+            laserVelocityRef[0] = 0f
+            laserScaleRef[0] = 1.0f
+            lastEventTimeRef[0] = 0L
+            lastEventPosRef[0] = null
             rendererRef[0]?.clear()
         }
         onDispose {
+            if (isDecayLoopRunning[0]) {
+                android.view.Choreographer.getInstance().removeFrameCallback(laserDecayCallback)
+                isDecayLoopRunning[0] = false
+            }
             synchronized(completedStrokesLock) { completedLaserStrokes.clear() }
             activeLaserPoints.clear()
             activeLaserPath.reset()
             isLaserPressedRef[0] = false
             currentLaserTipRef[0] = null
+            laserVelocityRef[0] = 0f
+            laserScaleRef[0] = 1.0f
+            lastEventTimeRef[0] = 0L
+            lastEventPosRef[0] = null
             rendererRef[0]?.clear()
         }
-    }
-
-    fun updateFrontBufferPath(points: List<Offset>, predicted: List<Offset>) {
-        frontBufferPath.reset()
-        val totalCount = points.size + predicted.size
-        if (totalCount == 0) return
-
-        val getPt: (Int) -> Offset = { idx ->
-            if (idx < points.size) points[idx] else predicted[idx - points.size]
-        }
-
-        val p0 = getPt(0)
-        frontBufferPath.moveTo(p0.x, p0.y)
-        if (totalCount == 1) {
-            frontBufferPath.lineTo(p0.x + 0.1f, p0.y + 0.1f)
-            return
-        }
-        if (totalCount == 2) {
-            val p1 = getPt(1)
-            frontBufferPath.lineTo(p1.x, p1.y)
-            return
-        }
-        for (i in 1 until totalCount - 1) {
-            val pt0 = getPt(i)
-            val pt1 = getPt(i + 1)
-            val midX = (pt0.x + pt1.x) / 2f
-            val midY = (pt0.y + pt1.y) / 2f
-            frontBufferPath.quadTo(pt0.x, pt0.y, midX, midY)
-        }
-        val pLast = getPt(totalCount - 1)
-        frontBufferPath.lineTo(pLast.x, pLast.y)
     }
 
     fun drawAndroidArrow(canvas: Canvas, start: Offset, end: Offset, arrowPaint: Paint) {
@@ -402,17 +488,17 @@ internal fun HardwareInkingSurface(
                             if (param.isClear) return
 
                             // ── Unified Jetpack Low-Latency Scanout ──────────────────────────
-                            when (param.tool) {
-                                PdfEditTool.Laser -> {
-                                    drawNativeLaserStroke(canvas, param.path, param.laserTip, param.laserStrokes)
-                                    return
-                                }
-                                else -> {
-                                    if (param.isLaser) {
-                                        drawNativeLaserStroke(canvas, param.path, param.laserTip, param.laserStrokes)
-                                        return
-                                    }
-                                }
+                            // Ephemeral laser strokes exist strictly in active viewport screen space (1:1 native pixels).
+                            // They do NOT inherit document magnification / pageTransformMatrix.
+                            if (param.tool == PdfEditTool.Laser || param.isLaser) {
+                                drawCrispScreenSpaceLaser(
+                                    canvas = canvas,
+                                    activePath = param.path,
+                                    beadPoint = param.laserTip,
+                                    completedStrokes = param.laserStrokes,
+                                    activeScale = param.laserScale
+                                )
+                                return
                             }
 
                             paint.color = param.color
@@ -600,24 +686,34 @@ internal fun HardwareInkingSurface(
                         var strokeCancelled = false
 
                         val freezeActiveLaserStroke = {
-                            isLaserPressedRef[0] = false
-                            currentLaserTipRef[0] = null
-                            if (activeLaserPoints.size > 1) {
-                                val finalizedPath = android.graphics.Path(activeLaserPath)
-                                synchronized(completedStrokesLock) {
-                                    completedLaserStrokes.add(
-                                        CompletedLaserStroke(
-                                            path = finalizedPath,
-                                            birthTime = SystemClock.uptimeMillis()
+                            if (isLaserPressedRef[0]) {
+                                isLaserPressedRef[0] = false
+                                currentLaserTipRef[0] = null
+                                if (activeLaserPoints.size > 1) {
+                                    val finalizedPath = android.graphics.Path(activeLaserPath)
+                                    val strokeScale = laserScaleRef[0]
+                                    synchronized(completedStrokesLock) {
+                                        completedLaserStrokes.add(
+                                            CompletedLaserStroke(
+                                                path = finalizedPath,
+                                                birthTime = SystemClock.uptimeMillis(),
+                                                coreWidth = laserCoreRadiusPx * strokeScale,
+                                                glowWidth = laserGlowRadiusPx * strokeScale,
+                                                hotWidth = laserHotRadiusPx * strokeScale
+                                            )
                                         )
-                                    )
+                                    }
                                 }
-                            }
-                            activeLaserPoints.clear()
-                            activeLaserPath.reset()
-                            if (!isChoreographerScheduled[0]) {
-                                isChoreographerScheduled[0] = true
-                                android.view.Choreographer.getInstance().postFrameCallback(laserFrameCallback)
+                                activeLaserPoints.clear()
+                                activeLaserPath.reset()
+                                laserVelocityRef[0] = 0f
+                                laserScaleRef[0] = 1.0f
+                                lastEventTimeRef[0] = 0L
+                                lastEventPosRef[0] = null
+                                if (!isDecayLoopRunning[0]) {
+                                    isDecayLoopRunning[0] = true
+                                    android.view.Choreographer.getInstance().postFrameCallback(laserDecayCallback)
+                                }
                             }
                         }
 
@@ -636,7 +732,9 @@ internal fun HardwareInkingSurface(
                         } else {
                             // Scenario A: Single pointer (stylus or finger drawing)
                             down.consume()
-                            currentOnInteraction()
+                            if (!isLaser) {
+                                currentOnInteraction()
+                            }
                             hostView.parent?.requestDisallowInterceptTouchEvent(true)
 
                             if (isLaser) {
@@ -644,8 +742,11 @@ internal fun HardwareInkingSurface(
                                 currentLaserTipRef[0] = down.position
                                 activeLaserPoints.clear()
                                 activeLaserPoints.add(down.position)
-                                initialEvent.motionEvent?.let { runCatching { predictor?.record(it) } }
-                                updateLaserSplinePath(activeLaserPoints, emptyList(), activeLaserPath)
+                                laserVelocityRef[0] = 0f
+                                laserScaleRef[0] = 1.0f
+                                lastEventTimeRef[0] = initialEvent.motionEvent?.eventTime ?: SystemClock.uptimeMillis()
+                                lastEventPosRef[0] = down.position
+                                updateFrontBufferPath(activeLaserPoints, activeLaserPath)
 
                                 val snapshot = synchronized(completedStrokesLock) { ArrayList(completedLaserStrokes) }
                                 rendererRef[0]?.renderFrontBufferedLayer(
@@ -654,13 +755,10 @@ internal fun HardwareInkingSurface(
                                         isLaser = true,
                                         path = activeLaserPath,
                                         laserTip = down.position,
-                                        laserStrokes = snapshot
+                                        laserStrokes = snapshot,
+                                        laserScale = 1.0f
                                     )
                                 )
-                                if (!isChoreographerScheduled[0]) {
-                                    isChoreographerScheduled[0] = true
-                                    android.view.Choreographer.getInstance().postFrameCallback(laserFrameCallback)
-                                }
                             } else {
                                 // Clear any previous residual stroke before starting the new one
                                 rendererRef[0]?.clear()
@@ -682,7 +780,7 @@ internal fun HardwareInkingSurface(
                                     width = currentStrokeWidth,
                                     highlight = isHl
                                 )
-                                updateFrontBufferPath(state.points, emptyList())
+                                updateFrontBufferPath(state.points)
                                 rendererRef[0]?.renderFrontBufferedLayer(
                                     InkingRenderSegment(
                                         path = frontBufferPath,
@@ -715,9 +813,6 @@ internal fun HardwareInkingSurface(
                             if (pressedChanges.isEmpty()) {
                                 if (isLaser) {
                                     freezeActiveLaserStroke()
-                                } else {
-                                    motionEvent?.let { runCatching { predictor?.record(it) } }
-                                    state.clearPredictedPoints()
                                 }
                                 break
                             }
@@ -749,9 +844,6 @@ internal fun HardwareInkingSurface(
                                 if (stylusChange == null || !stylusChange.pressed) {
                                     if (isLaser) {
                                         freezeActiveLaserStroke()
-                                    } else {
-                                        motionEvent?.let { runCatching { predictor?.record(it) } }
-                                        state.clearPredictedPoints()
                                     }
                                     break
                                 }
@@ -763,19 +855,19 @@ internal fun HardwareInkingSurface(
                             } else {
                                 // Multi-Touch Detection: 2 or more finger pointers without stylus
                                 if (pressedChanges.size >= 2) {
-                                    // Cancel in-flight ink stroke immediately & clear Skia front buffer
+                                    // Multi-finger gesture detected
                                     strokeCancelled = true
                                     isTwoFingerTransforming = true
-                                    state.cancel()
-                                    frontBufferPath.reset()
-                                    rendererRef[0]?.clear()
 
                                     if (isLaser) {
-                                        isLaserPressedRef[0] = false
-                                        currentLaserTipRef[0] = null
-                                        activeLaserPoints.clear()
-                                        activeLaserPath.reset()
-                                        synchronized(completedStrokesLock) { completedLaserStrokes.clear() }
+                                        // Freeze the in-flight laser stroke into a decaying stroke so it remains
+                                        // stationary on screen glass and naturally decays during pan/zoom
+                                        freezeActiveLaserStroke()
+                                    } else {
+                                        // Cancel in-flight pen ink stroke immediately & clear Skia front buffer
+                                        state.cancel()
+                                        frontBufferPath.reset()
+                                        rendererRef[0]?.clear()
                                     }
 
                                     // Release parent interception for smooth viewport panning/scaling
@@ -796,9 +888,6 @@ internal fun HardwareInkingSurface(
                                 if (fingerChange == null || !fingerChange.pressed) {
                                     if (isLaser) {
                                         freezeActiveLaserStroke()
-                                    } else {
-                                        motionEvent?.let { runCatching { predictor?.record(it) } }
-                                        state.clearPredictedPoints()
                                     }
                                     break
                                 }
@@ -813,42 +902,54 @@ internal fun HardwareInkingSurface(
                             }
 
                             if (isLaser) {
-                                if (motionEvent != null) {
-                                    runCatching { predictor?.record(motionEvent) }
+                                // Velocity tracking for dynamic organic beam width
+                                val eventTime = motionEvent?.eventTime ?: SystemClock.uptimeMillis()
+                                val lastTime = lastEventTimeRef[0]
+                                val lastPos = lastEventPosRef[0]
+                                if (lastPos != null && lastTime > 0L && eventTime > lastTime) {
+                                    val dt = (eventTime - lastTime).toFloat()
+                                    val dist = hypot((activeChange.position.x - lastPos.x).toDouble(), (activeChange.position.y - lastPos.y).toDouble()).toFloat()
+                                    val instantV = (dist / dt).coerceIn(0f, 10f)
+                                    laserVelocityRef[0] = 0.35f * instantV + 0.65f * laserVelocityRef[0]
                                 }
+                                lastEventTimeRef[0] = eventTime
+                                lastEventPosRef[0] = activeChange.position
 
-                                // Batch hardware 240Hz digitizer points
+                                laserScaleRef[0] = getLaserScale(laserVelocityRef[0])
+
+                                // Batch hardware 240Hz digitizer points (identical to Pen)
                                 val batched = extractDigitizerBatchPoints(activeChange, event)
-                                if (batched.isNotEmpty()) {
-                                    activeLaserPoints.addAll(batched)
+                                for (i in 0 until batched.size) {
+                                    val pt = batched[i]
+                                    val last = activeLaserPoints.lastOrNull()
+                                    if (last == null || pt.x != last.x || pt.y != last.y) {
+                                        activeLaserPoints.add(pt)
+                                    }
                                 }
-                                activeLaserPoints.add(activeChange.position)
+                                val last = activeLaserPoints.lastOrNull()
+                                if (last == null || activeChange.position.x != last.x || activeChange.position.y != last.y) {
+                                    activeLaserPoints.add(activeChange.position)
+                                }
 
-                                // Sub-frame motion prediction
-                                val predicted = if (predictor != null && motionEvent != null) {
-                                    predictSubFramePoints(predictor, activeChange, motionEvent)
-                                } else emptyList()
+                                // Pointer tip coordinate is strictly the actual stylus contact point (no prediction / extrapolation)
+                                currentLaserTipRef[0] = activeChange.position
 
-                                val tipBead = predicted.lastOrNull() ?: activeChange.position
-                                currentLaserTipRef[0] = tipBead
+                                // Rebuild active path using the identical midpoint quadratic spline formula as Pen
+                                updateFrontBufferPath(activeLaserPoints, activeLaserPath)
 
-                                updateLaserSplinePath(activeLaserPoints, predicted, activeLaserPath)
-
+                                // Synchronous immediate front-buffer dispatch: push directly to front buffer!
                                 val snapshot = synchronized(completedStrokesLock) { ArrayList(completedLaserStrokes) }
                                 rendererRef[0]?.renderFrontBufferedLayer(
                                     InkingRenderSegment(
                                         tool = PdfEditTool.Laser,
                                         isLaser = true,
                                         path = activeLaserPath,
-                                        laserTip = tipBead,
-                                        laserStrokes = snapshot
+                                        laserTip = activeChange.position,
+                                        laserStrokes = snapshot,
+                                        laserScale = laserScaleRef[0]
                                     )
                                 )
                             } else if (isFreehand) {
-                                if (motionEvent != null) {
-                                    runCatching { predictor?.record(motionEvent) }
-                                }
-
                                 // Batch hardware 240Hz digitizer points
                                 val batched = extractDigitizerBatchPoints(activeChange, event)
                                 if (batched.isNotEmpty()) {
@@ -856,15 +957,8 @@ internal fun HardwareInkingSurface(
                                 }
                                 state.addPoint(activeChange.position)
 
-                                // Sub-frame motion prediction
-                                val predicted = if (predictor != null && motionEvent != null) {
-                                    predictSubFramePoints(predictor, activeChange, motionEvent)
-                                } else emptyList()
-
-                                state.setPredictedPoints(predicted)
-
                                 // Update Skia path and render directly to hardware front-buffer
-                                updateFrontBufferPath(state.points, predicted)
+                                updateFrontBufferPath(state.points)
                                 rendererRef[0]?.renderFrontBufferedLayer(
                                     InkingRenderSegment(
                                         path = frontBufferPath,
@@ -900,6 +994,15 @@ internal fun HardwareInkingSurface(
                                 activeLaserPoints.clear()
                                 activeLaserPath.reset()
                                 synchronized(completedStrokesLock) { completedLaserStrokes.clear() }
+                                laserVelocityRef[0] = 0f
+                                laserScaleRef[0] = 1.0f
+                                lastEventTimeRef[0] = 0L
+                                lastEventPosRef[0] = null
+                                if (isDecayLoopRunning[0]) {
+                                    android.view.Choreographer.getInstance().removeFrameCallback(laserDecayCallback)
+                                    isDecayLoopRunning[0] = false
+                                }
+                                rendererRef[0]?.clear()
                             }
                         } else {
                             // ── Two-Phase Handoff Synchronization (Zero-Flicker) ─────────────────
@@ -1012,13 +1115,19 @@ internal fun HardwareInkingSurface(
 
     DisposableEffect(Unit) {
         onDispose {
-            android.view.Choreographer.getInstance().removeFrameCallback(laserFrameCallback)
-            isChoreographerScheduled[0] = false
+            if (isDecayLoopRunning[0]) {
+                android.view.Choreographer.getInstance().removeFrameCallback(laserDecayCallback)
+                isDecayLoopRunning[0] = false
+            }
             synchronized(completedStrokesLock) { completedLaserStrokes.clear() }
             activeLaserPoints.clear()
             activeLaserPath.reset()
             isLaserPressedRef[0] = false
             currentLaserTipRef[0] = null
+            laserVelocityRef[0] = 0f
+            laserScaleRef[0] = 1.0f
+            lastEventTimeRef[0] = 0L
+            lastEventPosRef[0] = null
             rendererRef[0]?.release(true)
             rendererRef[0] = null
         }

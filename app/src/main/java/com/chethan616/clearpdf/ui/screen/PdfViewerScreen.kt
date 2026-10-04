@@ -1181,8 +1181,28 @@ fun PdfViewerScreen(
                                 onTransformGesture = handleViewportTransform
                             )
                         }
+                    }
                 }
-            }
+
+                // ── Viewport-level 1:1 screen-space front-buffer laser pointer ─────────
+                // Ephemeral laser operates strictly in raw screen pixels across the full viewport,
+                // completely decoupled from document zoom/pan graphicsLayer matrix to prevent pixelation/blur.
+                if (activeTool == PdfEditTool.Laser) {
+                    val viewportLaserState = remember { InFlightInkState() }
+                    HardwareInkingSurface(
+                        modifier = Modifier.fillMaxSize(),
+                        state = viewportLaserState,
+                        page = -1,
+                        activeTool = activeTool,
+                        shapeMode = InkShapeMode.Free,
+                        currentColor = currentColor,
+                        currentStrokeWidth = currentStrokeWidth,
+                        pageScale = 1.0f,
+                        onInteraction = { lastInteractionAtMs = System.currentTimeMillis() },
+                        onStrokeCommitted = { _, _ -> },
+                        onTransformGesture = handleViewportTransform
+                    )
+                }
             }
         }
 

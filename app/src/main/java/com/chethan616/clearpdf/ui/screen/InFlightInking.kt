@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -22,8 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
-import androidx.input.motionprediction.MotionEventPredictor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -35,14 +33,11 @@ import kotlin.math.min
  * which is read exclusively inside the draw phase ([drawBehind]), completely bypassing
  * Compose recomposition and relayout passes of the page tree.
  *
- * Ground truth coordinates from the digitizer are stored in [points].
- * Sub-frame predicted coordinates from [MotionEventPredictor] are stored in [predictedPoints]
- * to extend the stroke tip directly under the moving stylus nib, and are discarded upon
- * stroke completion so only ground truth points are persisted into document markups.
+ * Ground truth coordinates from the hardware digitizer are stored in [points] and smoothed
+ * via lightweight midpoint quadratic spline curves (quadTo) matching native inking fidelity.
  */
 internal class InFlightInkState {
     val points = ArrayList<Offset>(1024)
-    val predictedPoints = ArrayList<Offset>(16)
     val path = Path()
 
     var color: Color = Color.Black
@@ -61,7 +56,6 @@ internal class InFlightInkState {
 
     fun startFreehand(start: Offset, color: Color, width: Float, highlight: Boolean) {
         points.clear()
-        predictedPoints.clear()
         points.add(start)
         this.color = color
         this.strokeWidth = width
@@ -100,55 +94,30 @@ internal class InFlightInkState {
         drawInvalidationTick++
     }
 
-    fun setPredictedPoints(pts: List<Offset>) {
-        if (!isActive) return
-        predictedPoints.clear()
-        if (pts.isNotEmpty()) {
-            predictedPoints.addAll(pts)
-        }
-        rebuildPath()
-        drawInvalidationTick++
-    }
-
-    fun clearPredictedPoints() {
-        if (predictedPoints.isNotEmpty()) {
-            predictedPoints.clear()
-            rebuildPath()
-            drawInvalidationTick++
-        }
-    }
-
     private fun rebuildPath() {
         path.reset()
-        val totalCount = points.size + predictedPoints.size
+        val totalCount = points.size
         if (totalCount == 0) return
 
-        val allPoints: (Int) -> Offset = { index ->
-            if (index < points.size) points[index] else predictedPoints[index - points.size]
-        }
-
-        path.moveTo(allPoints(0).x, allPoints(0).y)
+        path.moveTo(points[0].x, points[0].y)
         if (totalCount == 1) return
         if (totalCount == 2) {
-            val p1 = allPoints(1)
-            path.lineTo(p1.x, p1.y)
+            path.lineTo(points[1].x, points[1].y)
             return
         }
         for (i in 1 until totalCount - 1) {
-            val p0 = allPoints(i)
-            val p1 = allPoints(i + 1)
+            val p0 = points[i]
+            val p1 = points[i + 1]
             val midX = (p0.x + p1.x) / 2f
             val midY = (p0.y + p1.y) / 2f
             path.quadraticTo(p0.x, p0.y, midX, midY)
         }
-        val last = allPoints(totalCount - 1)
-        path.lineTo(last.x, last.y)
+        path.lineTo(points[totalCount - 1].x, points[totalCount - 1].y)
     }
 
     fun finishFreehand(): List<Offset> {
         if (!isActive) return emptyList()
         isActive = false
-        predictedPoints.clear()
         val result = if (points.size == 1) {
             // For a single-point tap (dotting an 'i' or writing a period / accent),
             // synthesize a micro-segment so StrokeCap.Round renders a clean round dot.
@@ -172,7 +141,6 @@ internal class InFlightInkState {
         this.isHighlight = highlight
         this.isActive = true
         this.points.clear()
-        this.predictedPoints.clear()
         this.path.reset()
         drawInvalidationTick++
     }
@@ -220,7 +188,6 @@ internal class InFlightInkState {
     fun cancel() {
         isActive = false
         points.clear()
-        predictedPoints.clear()
         path.reset()
         shapeTool = null
         shapeStart = null
@@ -291,39 +258,49 @@ internal data class LaserPoint(
  */
 internal data class CompletedLaserStroke(
     val path: android.graphics.Path,
-    val birthTime: Long = android.os.SystemClock.uptimeMillis()
+    val birthTime: Long = android.os.SystemClock.uptimeMillis(),
+    val coreWidth: Float = 0f,
+    val glowWidth: Float = 0f,
+    val hotWidth: Float = 0f
 )
 
 internal typealias LaserStroke = CompletedLaserStroke
 
 /**
- * Smoothly constructs a unified Skia Path through the provided laser coordinates
- * using midpoint quadratic Bezier interpolation.
+ * Constructs a smooth continuous Catmull-Rom centripetal spline through digitized and predicted points.
+ * Converts each Catmull-Rom interval into a cubic Bezier segment (cubicTo), ensuring C1 continuity,
+ * preserving zero corner-cutting, and preventing loop pinching or self-intersection distortion
+ * during high-speed gestures and circular slashes.
+ */
+/**
+ * Constructs a smooth continuous Skia Path through the provided laser coordinates
+ * using the identical midpoint quadratic spline formula (quadTo) as native pen inking.
  */
 internal fun rebuildLaserPath(points: List<LaserPoint>, path: android.graphics.Path) {
     path.reset()
-    if (points.isEmpty()) return
+    val n = points.size
+    if (n == 0) return
+
     val p0 = points[0]
     path.moveTo(p0.x, p0.y)
-    if (points.size == 1) {
-        // Micro-offset allows Paint.Cap.ROUND to stamp a circular dot
+    if (n == 1) {
         path.lineTo(p0.x + 0.1f, p0.y + 0.1f)
         return
     }
-    if (points.size == 2) {
+    if (n == 2) {
         val p1 = points[1]
         path.lineTo(p1.x, p1.y)
         return
     }
-    for (i in 1 until points.size - 1) {
+    for (i in 1 until n - 1) {
         val pt0 = points[i]
         val pt1 = points[i + 1]
         val midX = (pt0.x + pt1.x) / 2f
         val midY = (pt0.y + pt1.y) / 2f
         path.quadTo(pt0.x, pt0.y, midX, midY)
     }
-    val last = points.last()
-    path.lineTo(last.x, last.y)
+    val pLast = points[n - 1]
+    path.lineTo(pLast.x, pLast.y)
 }
 
 /**
@@ -375,83 +352,12 @@ internal fun extractLaserBatchPoints(
 }
 
 /**
- * Predicts sub-frame stylus tip coordinates using Google's [MotionEventPredictor].
- *
- * Predicts the future physical coordinate of the stylus tip for the upcoming display scanout /
- * vsync swap, closing the remaining 15-25ms air gap between physical nib and rendered ink.
- * Coordinates are mapped to local page space using the offset delta and validated for smoothness.
- */
-internal fun predictSubFramePoints(
-    predictor: MotionEventPredictor,
-    change: PointerInputChange,
-    motionEvent: MotionEvent
-): List<Offset> {
-    val predictedEvent = runCatching { predictor.predict() }.getOrNull() ?: return emptyList()
-    return try {
-        val pIdx = if (motionEvent.pointerCount > 0) {
-            val id = change.id.value.toInt()
-            val found = motionEvent.findPointerIndex(id)
-            if (found >= 0) found else 0
-        } else 0
-
-        val curMotionX = motionEvent.getX(pIdx)
-        val curMotionY = motionEvent.getY(pIdx)
-        val deltaX = change.position.x - curMotionX
-        val deltaY = change.position.y - curMotionY
-
-        val predPIdx = if (predictedEvent.pointerCount > 0) {
-            val id = change.id.value.toInt()
-            val found = predictedEvent.findPointerIndex(id)
-            if (found >= 0) found else 0
-        } else 0
-
-        if (predPIdx in 0 until predictedEvent.pointerCount) {
-            val historySize = predictedEvent.historySize
-            val list = ArrayList<Offset>(historySize + 1)
-            var lastPt = change.position
-            for (h in 0 until historySize) {
-                val pt = Offset(
-                    predictedEvent.getHistoricalX(predPIdx, h) + deltaX,
-                    predictedEvent.getHistoricalY(predPIdx, h) + deltaY
-                )
-                val dx = pt.x - lastPt.x
-                val dy = pt.y - lastPt.y
-                val distSq = dx * dx + dy * dy
-                // Sanity check: keep predictions within smooth velocity envelope (< 120px per sub-frame)
-                if (distSq in 1f..14400f) {
-                    list.add(pt)
-                    lastPt = pt
-                }
-            }
-            val finalPt = Offset(
-                predictedEvent.getX(predPIdx) + deltaX,
-                predictedEvent.getY(predPIdx) + deltaY
-            )
-            val fdx = finalPt.x - lastPt.x
-            val fdy = finalPt.y - lastPt.y
-            val fDistSq = fdx * fdx + fdy * fdy
-            if (fDistSq in 1f..14400f) {
-                list.add(finalPt)
-            }
-            list
-        } else {
-            emptyList()
-        }
-    } finally {
-        predictedEvent.recycle()
-    }
-}
-
-/**
- * Dedicated, low-latency in-flight inking overlay composable with motion prediction.
+ * Dedicated, low-latency in-flight inking overlay composable.
  *
  * This overlay renders active freehand strokes and shape drafts in real-time.
  * Because all points are drawn via [drawBehind] observing [InFlightInkState.drawInvalidationTick],
  * visual invalidation is isolated to the draw phase of this overlay node, bypassing Compose
  * recomposition and relayout passes of the page tree entirely.
- *
- * Sub-frame prediction from [MotionEventPredictor] extends the in-flight stroke tip directly
- * under the active stylus nib, eliminating visual dragging during rapid cursive writing.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -465,11 +371,6 @@ internal fun InFlightInkingOverlay(
     onInteraction: () -> Unit,
     onStrokeCommitted: (PdfMarkup) -> Unit
 ) {
-    val view = LocalView.current
-    val predictor = remember(view) {
-        runCatching { MotionEventPredictor.newInstance(view) }.getOrNull()
-    }
-
     Box(
         modifier = modifier
             .drawBehind {
@@ -546,21 +447,13 @@ internal fun InFlightInkingOverlay(
 
                     while (true) {
                         val event = awaitPointerEvent()
-                        val motionEvent = event.motionEvent
                         val change = event.changes.firstOrNull { it.id == pointerId }
                         if (change == null || !change.pressed) {
-                            // Touch up or gesture cancelled: record up into predictor
-                            motionEvent?.let { runCatching { predictor?.record(it) } }
-                            state.clearPredictedPoints()
                             break
                         }
                         change.consume()
 
                         if (isFreehand) {
-                            if (motionEvent != null) {
-                                runCatching { predictor?.record(motionEvent) }
-                            }
-
                             // 1. Digitizer point batching via getHistorical* (240Hz hardware samples)
                             val batched = extractDigitizerBatchPoints(change, event)
                             if (batched.isNotEmpty()) {
@@ -568,14 +461,6 @@ internal fun InFlightInkingOverlay(
                             }
                             // 2. Latest touch sample
                             state.addPoint(change.position)
-
-                            // 3. Sub-frame motion prediction (extends in-flight tip directly under stylus nib)
-                            if (predictor != null && motionEvent != null) {
-                                val predicted = predictSubFramePoints(predictor, change, motionEvent)
-                                state.setPredictedPoints(predicted)
-                            } else {
-                                state.clearPredictedPoints()
-                            }
                         } else {
                             state.updateShapeEnd(change.position)
                         }

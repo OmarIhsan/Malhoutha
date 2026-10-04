@@ -42,7 +42,7 @@ internal fun pushRecentColor(color: Color, currentList: List<Color>): List<Color
 }
 
 // ── Laser Pointer Constants ───────────────────────────────────────────────────
-internal const val LASER_STROKE_HOLD_DURATION_MS = 1600L
+internal const val LASER_STROKE_HOLD_DURATION_MS = 1200L
 internal const val LASER_STROKE_FADE_DURATION_MS = 400L
 internal const val LASER_COLOR_ARGB = 0xFFFF1744.toInt()
 
