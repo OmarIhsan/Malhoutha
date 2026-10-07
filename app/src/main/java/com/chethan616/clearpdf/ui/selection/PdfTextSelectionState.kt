@@ -230,6 +230,24 @@ class PdfTextSelectionState {
         return out
     }
 
+    /** Selection union bounding box in normalized [0.0..1.0] page space for [page]. */
+    fun selectionNormalizedRect(page: Int): Rect? {
+        val (from, to) = pageRange(page) ?: return null
+        val size = pageSize(page) ?: return null
+        if (size.width <= 0f || size.height <= 0f) return null
+        val rects = layout(page)?.selectionRects(from, to, size) ?: return null
+        if (rects.isEmpty()) return null
+        val union = rects.reduce { a, b ->
+            Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
+        }
+        return Rect(
+            left = (union.left / size.width).coerceIn(0f, 1f),
+            top = (union.top / size.height).coerceIn(0f, 1f),
+            right = (union.right / size.width).coerceIn(0f, 1f),
+            bottom = (union.bottom / size.height).coerceIn(0f, 1f)
+        )
+    }
+
     /** Caret nearest a screen point, on the page under it. */
     fun caretAtScreen(p: Offset): TextPos? {
         val page = pageAtScreen(p) ?: return null

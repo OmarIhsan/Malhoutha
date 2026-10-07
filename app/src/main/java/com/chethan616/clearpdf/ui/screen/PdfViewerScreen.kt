@@ -107,6 +107,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -128,6 +129,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.malhoutha.R
+import com.chethan616.clearpdf.medical.domain.TranslationResult
+import com.chethan616.clearpdf.medical.model.MedicalDomain
+import com.chethan616.clearpdf.medical.interop.MedicalStickyCardMapper
+import com.chethan616.clearpdf.medical.repository.MedicalTranslationRepository
+import com.chethan616.clearpdf.medical.ui.MedicalTooltipUiState
+import com.chethan616.clearpdf.medical.ui.MedicalTranslationTooltip
 import com.chethan616.clearpdf.data.repository.AppSettingsManager
 import com.chethan616.clearpdf.ui.components.UnsavedChangesDialog
 import com.chethan616.clearpdf.ui.components.DecryptingAnimation
@@ -166,6 +173,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+
+private sealed class ViewerEditHistory {
+    abstract val page: Int
+    data class Markup(override val page: Int, val mark: PdfMarkup? = null) : ViewerEditHistory()
+    data class StickyNote(override val page: Int, val note: StickyCardAnnotation) : ViewerEditHistory()
+}
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
@@ -266,6 +279,7 @@ fun PdfViewerScreen(
     val annotationsByPage = remember { mutableStateMapOf<Int, MutableList<PdfMarkup>>() }
     val stickyNotesByPage = remember { mutableStateMapOf<Int, androidx.compose.runtime.snapshots.SnapshotStateList<StickyCardAnnotation>>() }
     var selectedStickyNoteId by remember { mutableStateOf<String?>(null) }
+    var medicalTooltipState by remember { mutableStateOf(MedicalTooltipUiState()) }
     val pageCanvasSizes   = remember { mutableStateMapOf<Int, Size>() }
     val pageBitmapSizes   = remember { mutableStateMapOf<Int, Size>() }
 
@@ -298,8 +312,8 @@ fun PdfViewerScreen(
     // the first *partially* visible page — usually a sliver of the previous page while you draw on
     // the one filling the screen, so undo silently no-op'd on an empty list. The same trap is
     // already documented for image placement at `activeImageLoc`.
-    val undoStack = remember { mutableStateListOf<Int>() }
-    val redoStack = remember { mutableStateListOf<Pair<Int, PdfMarkup>>() }
+    val undoStack = remember { mutableStateListOf<ViewerEditHistory>() }
+    val redoStack = remember { mutableStateListOf<ViewerEditHistory>() }
 
     // Declared here (rather than lower) so the image/signature launchers below can place
     // annotations onto whichever page is under the viewport centre.
@@ -370,40 +384,69 @@ fun PdfViewerScreen(
 
     /** Record that [page] just gained a markup, so undo can find it again. */
     fun recordEdit(page: Int) {
-        undoStack.add(page)
+        undoStack.add(ViewerEditHistory.Markup(page))
+        redoStack.clear()
+    }
+
+    /** Record that [page] just gained a sticky card note, so undo can find it again. */
+    fun recordStickyNoteAdded(page: Int, note: StickyCardAnnotation) {
+        undoStack.add(ViewerEditHistory.StickyNote(page, note))
         redoStack.clear()
     }
 
     /**
-     * Remove the most recently added markup, wherever it lives. Entries can go stale — the eraser
-     * and the shape editor delete marks without touching the stack — so pop past any page that has
+     * Remove the most recently added markup or sticky note, wherever it lives. Entries can go stale — the eraser
+     * and the shape editor delete marks without touching the stack — so pop past any item that has
      * since been emptied. If the history is exhausted (or was never populated) fall back to the page
      * under the viewport centre, which is the page the user is looking at.
      */
     fun undoLastEdit() {
         while (undoStack.isNotEmpty()) {
-            val page = undoStack.removeAt(undoStack.lastIndex)
-            val marks = getPageMarks(page)
-            if (marks.isNotEmpty()) {
-                val mark = marks.removeAt(marks.lastIndex)
-                redoStack.add(page to mark)
-                return
+            when (val entry = undoStack.removeAt(undoStack.lastIndex)) {
+                is ViewerEditHistory.Markup -> {
+                    val marks = getPageMarks(entry.page)
+                    if (marks.isNotEmpty()) {
+                        val mark = marks.removeAt(marks.lastIndex)
+                        redoStack.add(ViewerEditHistory.Markup(entry.page, mark))
+                        return
+                    }
+                }
+                is ViewerEditHistory.StickyNote -> {
+                    val notes = getPageStickyNotes(entry.page)
+                    val idx = notes.indexOfFirst { it.id == entry.note.id }
+                    if (idx >= 0) {
+                        val removed = notes.removeAt(idx)
+                        redoStack.add(ViewerEditHistory.StickyNote(entry.page, removed))
+                        if (selectedStickyNoteId == entry.note.id) {
+                            selectedStickyNoteId = null
+                        }
+                        return
+                    }
+                }
             }
         }
         val fallbackPage = viewportPlacementTarget().first
         val marks = getPageMarks(fallbackPage)
         if (marks.isNotEmpty()) {
             val mark = marks.removeAt(marks.lastIndex)
-            redoStack.add(fallbackPage to mark)
+            redoStack.add(ViewerEditHistory.Markup(fallbackPage, mark))
         }
     }
 
-    /** Re-apply the last undone markup. */
+    /** Re-apply the last undone markup or sticky note. */
     fun redoLastEdit() {
         if (redoStack.isNotEmpty()) {
-            val (page, mark) = redoStack.removeAt(redoStack.lastIndex)
-            getPageMarks(page).add(mark)
-            undoStack.add(page)
+            when (val entry = redoStack.removeAt(redoStack.lastIndex)) {
+                is ViewerEditHistory.Markup -> {
+                    entry.mark?.let { getPageMarks(entry.page).add(it) }
+                    undoStack.add(ViewerEditHistory.Markup(entry.page, entry.mark))
+                }
+                is ViewerEditHistory.StickyNote -> {
+                    getPageStickyNotes(entry.page).add(entry.note)
+                    undoStack.add(ViewerEditHistory.StickyNote(entry.page, entry.note))
+                    selectedStickyNoteId = entry.note.id
+                }
+            }
         }
     }
 
@@ -412,8 +455,8 @@ fun PdfViewerScreen(
         val page = viewportPlacementTarget().first
         getPageMarks(page).clear()
         getPageStickyNotes(page).clear()
-        undoStack.removeAll { it == page }
-        redoStack.removeAll { it.first == page }
+        undoStack.removeAll { it.page == page }
+        redoStack.removeAll { it.page == page }
     }
 
     // Add a new image/signature centred at the viewport-target (or specified tap coordinates) on the correct page, sized
@@ -1126,6 +1169,37 @@ fun PdfViewerScreen(
                                     selectedAnnoPage = null; selectedAnnoIndex = -1
                                     activeImageId = null
                                 },
+                                onTranslateMarkup       = { idx, normRect ->
+                                    val m = getPageMarks(page).getOrNull(idx)
+                                    val blocks = state.ocrBlocksByPage[page].orEmpty()
+                                    val (blockId, start, end) = when (m) {
+                                        is PdfMarkup.TextBlockHighlightMarkup -> Triple(m.blockId, m.start, m.end)
+                                        is PdfMarkup.TextBlockLineMarkup -> Triple(m.blockId, m.start, m.end)
+                                        else -> Triple(null, 0, 0)
+                                    }
+                                    val text = blocks.firstOrNull { it.id == blockId }?.text?.let { full ->
+                                        full.substring(start.coerceAtLeast(0), end.coerceAtMost(full.length)).trim()
+                                    }
+                                    if (!text.isNullOrBlank()) {
+                                        medicalTooltipState = MedicalTooltipUiState(
+                                            isVisible = true,
+                                            isLoading = true,
+                                            selectedText = text,
+                                            selectionBoundsInPageNorm = normRect,
+                                            pageIndex = page
+                                        )
+                                        viewerScope.launch {
+                                            try {
+                                                val pageText = blocks.joinToString(" ") { it.text }
+                                                val repository = MedicalTranslationRepository.getInstance(context)
+                                                val result = repository.translate(text, pageText)
+                                                medicalTooltipState = medicalTooltipState.copy(isLoading = false, result = result)
+                                            } catch (e: Exception) {
+                                                medicalTooltipState = medicalTooltipState.copy(isLoading = false, errorMessage = e.localizedMessage)
+                                            }
+                                        }
+                                    }
+                                },
                                 textSelection = textSelection,
                                 paperConfig = state.paperConfig,
                                 stickyNotes = getPageStickyNotes(page),
@@ -1168,7 +1242,7 @@ fun PdfViewerScreen(
                                         colorHex = StickyCardPalette.YELLOW
                                     )
                                     getPageStickyNotes(page).add(newNote)
-                                    recordEdit(page)
+                                    recordStickyNoteAdded(page, newNote)
                                     selectedStickyNoteId = newNote.id
                                     controlsVisible = true
                                 },
@@ -1647,6 +1721,42 @@ fun PdfViewerScreen(
                         )
                     }
                 }
+            },
+            onMedicalTranslate = {
+                viewerScope.launch {
+                    val t = selectionTextLoaded().trim()
+                    val activePage = textSelection.start?.page ?: currentPageIndex
+                    val rects = textSelection.selectionScreenRects()
+                    val union = rects.takeIf { it.isNotEmpty() }?.reduce { a, b ->
+                        Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
+                    } ?: Rect.Zero
+                    val normBounds = textSelection.selectionNormalizedRect(activePage) ?: Rect.Zero
+
+                    if (t.isNotBlank()) {
+                        medicalTooltipState = MedicalTooltipUiState(
+                            isVisible = true,
+                            isLoading = true,
+                            selectedText = t,
+                            selectionBoundsInWindow = union,
+                            selectionBoundsInPageNorm = normBounds,
+                            pageIndex = activePage
+                        )
+                        try {
+                            val pageText = viewModel.uiState.value.ocrBlocksByPage[activePage]?.joinToString(" ") { it.text }
+                            val repository = MedicalTranslationRepository.getInstance(context)
+                            val result = repository.translate(t, pageText)
+                            medicalTooltipState = medicalTooltipState.copy(
+                                isLoading = false,
+                                result = result
+                            )
+                        } catch (e: Exception) {
+                            medicalTooltipState = medicalTooltipState.copy(
+                                isLoading = false,
+                                errorMessage = e.localizedMessage ?: "Translation failed"
+                            )
+                        }
+                    }
+                }
             }
         )
         // A lambda, evaluated inside the toolbar: reading the selection here would recompose this
@@ -1666,6 +1776,38 @@ fun PdfViewerScreen(
             highlightColor = currentColor,
             hasHighlightOverlap = hasHighlightOverlap
         )
+
+        // ── Medical Translation Luminous Hover Card ──
+        if (medicalTooltipState.isVisible) {
+            MedicalTranslationTooltip(
+                state = medicalTooltipState,
+                backdrop = contentBackdrop,
+                onDismiss = {
+                    medicalTooltipState = medicalTooltipState.copy(isVisible = false)
+                },
+                onCopyTranslation = { textToCopy ->
+                    clipboard.setText(AnnotatedString(textToCopy))
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    copiedTick++
+                },
+                onInsertStickyNote = { result ->
+                    val page = medicalTooltipState.pageIndex
+                    val existingNotes = getPageStickyNotes(page).toList()
+                    val newNote = MedicalStickyCardMapper.mapToStickyCard(
+                        result = result,
+                        pageIndex = page,
+                        selectionBoundsPageNorm = medicalTooltipState.selectionBoundsInPageNorm,
+                        existingNotes = existingNotes
+                    )
+                    getPageStickyNotes(page).add(newNote)
+                    recordStickyNoteAdded(page, newNote)
+                    selectedStickyNoteId = newNote.id
+                    controlsVisible = true
+                    medicalTooltipState = medicalTooltipState.copy(isVisible = false)
+                    textSelection.clear()
+                }
+            )
+        }
         PdfCopiedToast(
             trigger = copiedTick,
             backdrop = contentBackdrop,

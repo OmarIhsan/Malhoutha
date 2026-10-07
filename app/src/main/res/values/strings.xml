@@ -551,6 +551,13 @@
     <string name="selection_end_handle">Selection end handle</string>
     <string name="selection_chars_selected">%1$d characters selected</string>
     <string name="selection_select_page_text">Select all text on this page</string>
+    <string name="selection_medical_translate">Medical Translate</string>
+    <string name="medical_translate">Medical Translate</string>
+    <string name="medical_insert_sticky_note">Insert as Sticky Note</string>
+    <string name="medical_copy_translation">Copy Translation</string>
+    <string name="medical_latin_root">Latin root</string>
+    <string name="medical_definition">Definition</string>
+    <string name="medical_notes">Clinical Notes</string>
 
     <!-- Image editor -->
     <string name="ie_tool_crop">Crop</string>

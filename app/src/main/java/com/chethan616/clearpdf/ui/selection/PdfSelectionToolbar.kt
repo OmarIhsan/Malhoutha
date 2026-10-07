@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.StrikethroughS
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -117,7 +118,8 @@ class PdfSelectionActions(
     val onStrike: () -> Unit,
     val onRemoveHighlight: () -> Unit,
     val onSearch: () -> Unit,
-    val onProcessText: (ComponentName) -> Unit
+    val onProcessText: (ComponentName) -> Unit,
+    val onMedicalTranslate: (() -> Unit)? = null
 )
 
 /** Highlight palette: classic marker yellow first, then the design system's accents. */
@@ -269,6 +271,9 @@ fun PdfSelectionToolbar(
 
         val items = buildList {
             add(ToolbarItem("copy", copyL, Icons.Rounded.ContentCopy, onClick = act(actions.onCopy)))
+            actions.onMedicalTranslate?.let { onMedTr ->
+                add(ToolbarItem("med_tr", stringResource(R.string.selection_medical_translate), Icons.Rounded.Translate, onClick = act(onMedTr)))
+            }
             add(ToolbarItem("all", selectAllL, Icons.Rounded.SelectAll, onClick = act(actions.onSelectAll)))
             add(ToolbarItem(
                 "hl", highlightL, Icons.Rounded.Highlight, badge = highlightColor,

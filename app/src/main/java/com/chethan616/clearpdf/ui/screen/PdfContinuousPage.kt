@@ -138,6 +138,7 @@ internal fun PdfContinuousPage(
     selectedMarkupIndex: Int = -1,
     onSelectMarkup: (Int) -> Unit = {},
     onDeleteMarkup: (Int) -> Unit = {},
+    onTranslateMarkup: ((Int, Rect) -> Unit)? = null,
     /** The viewer's text selection: this page draws its slice of the highlight and registers its coordinates. */
     textSelection: PdfTextSelectionState,
     /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain). Infinitely sharp at any zoom. */
@@ -1041,6 +1042,24 @@ internal fun PdfContinuousPage(
                                 .clickable { onEditShape(selectedMarkupIndex) }
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         )
+                        if (onTranslateMarkup != null && (selected is PdfMarkup.TextBlockHighlightMarkup || selected is PdfMarkup.TextBlockLineMarkup)) {
+                            val normRect = if (csz.width > 0f && csz.height > 0f) {
+                                Rect(
+                                    (anchorRect.left / csz.width).coerceIn(0f, 1f),
+                                    (anchorRect.top / csz.height).coerceIn(0f, 1f),
+                                    (anchorRect.right / csz.width).coerceIn(0f, 1f),
+                                    (anchorRect.bottom / csz.height).coerceIn(0f, 1f)
+                                )
+                            } else Rect.Zero
+                            BasicText(
+                                "Translate",
+                                style = TextStyle(Color(0xFF64D2FF), 13.sp, FontWeight.Medium),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { onTranslateMarkup(selectedMarkupIndex, normRect) }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                        }
                         BasicText(
                             "Delete",
                             style = TextStyle(Color(0xFFEF5350), 13.sp, FontWeight.Medium),

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 import java.util.Properties
@@ -36,13 +37,17 @@ android {
 
     defaultConfig {
         applicationId = "com.malhoutha"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 36
         versionCode = 4
         versionName = "2.0.0"
         // Keep every locale declared by the app. Filtering this to English
         // removes values-pt-rBR from the packaged APK, so the language picker
         // can appear to work while the app continues to resolve English.
+    }
+
+    aaptOptions {
+        noCompress += listOf("bin", "task", "tflite", "db")
     }
 
     signingConfigs {
@@ -205,4 +210,13 @@ dependencies {
     "playImplementation"(libs.play.feature.delivery.ktx)
     "fossImplementation"(libs.androidx.work.runtime.ktx)
     "fossImplementation"(libs.xz)
+
+    // Room Database & FTS
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // On-Device GenAI / LiteRT LLM
+    implementation(libs.mediapipe.tasks.genai)
 }
+

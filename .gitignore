@@ -66,3 +66,7 @@ scratch/
 
 # Upstream reference clones (study only)
 /reference/
+
+# ADB test screenshots
+/screenshot.png
+
