@@ -26,3 +26,8 @@ interface OnDeviceContextualEngine {
         surroundingContext: String? = null
     ): TranslationResult.ContextualSentence
 }
+
+/**
+ * Architectural alias for [OnDeviceContextualEngine].
+ */
+typealias MedicalContextualEngine = OnDeviceContextualEngine

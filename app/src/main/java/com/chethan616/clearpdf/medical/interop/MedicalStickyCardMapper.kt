@@ -20,23 +20,23 @@ object MedicalStickyCardMapper {
     /** Default initial height of auto-generated marginal medical note cards (proportional to page height). */
     const val DEFAULT_CARD_HEIGHT_NORM = 0.16f
 
+    /** Compact height of a collapsed/folded sticky note badge (proportional to page height). */
+    const val FOLDED_CARD_HEIGHT_NORM = 0.04f
+
+    /** Normalized vertical spacing gap between stacked marginal sticky note cards. */
+    const val DEFAULT_VERTICAL_SPACING_NORM = 0.015f
+
+    /** Normalized top page margin boundary for sticky note placement. */
+    const val DEFAULT_PAGE_MARGIN_TOP_NORM = 0.02f
+
+    /** Normalized bottom page margin boundary for sticky note placement. */
+    const val DEFAULT_PAGE_MARGIN_BOTTOM_NORM = 0.04f
+
+
     /**
-     * Resolves the curated pastel color palette according to medical/clinical domain.
-     * - Anatomy: Sky Blue
-     * - Pathology: Soft Rose
-     * - Pharmacology: Mint Green
-     * - Procedure: Warm Yellow
-     * - Diagnostic: Warm Peach
-     * - General Clinical: Soft Lavender
+     * Resolves the canonical brand palette color (Clinical Teal) for marginal sticky cards.
      */
-    fun resolvePaletteColor(domain: MedicalDomain): Long = when (domain) {
-        MedicalDomain.ANATOMY -> StickyCardPalette.BLUE
-        MedicalDomain.PATHOLOGY -> StickyCardPalette.ROSE
-        MedicalDomain.PHARMACOLOGY -> StickyCardPalette.GREEN
-        MedicalDomain.PROCEDURE -> StickyCardPalette.YELLOW
-        MedicalDomain.DIAGNOSTIC -> StickyCardPalette.PEACH
-        MedicalDomain.GENERAL_CLINICAL -> StickyCardPalette.PURPLE
-    }
+    fun resolvePaletteColor(domain: MedicalDomain? = null): Long = StickyCardPalette.TEAL
 
     /**
      * Formats bilingual title and markdown content for a [TranslationResult].
@@ -61,8 +61,9 @@ object MedicalStickyCardMapper {
                         .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
                     metaParts.add("• $domainLabel${result.subspecialty?.let { " ($it)" }.orEmpty()}")
                 } else {
-                    val partOfSpeech = result.subspecialty?.takeIf { it.isNotBlank() }?.let { " (${it.lowercase()})" }.orEmpty()
-                    metaParts.add("• General Academic$partOfSpeech")
+                    result.subspecialty?.takeIf { it.isNotBlank() }?.let {
+                        metaParts.add("• ${it.lowercase()}")
+                    }
                 }
                 val metaLine = metaParts.joinToString(" ")
 
@@ -109,6 +110,49 @@ object MedicalStickyCardMapper {
 
                 title to body
             }
+            is TranslationResult.ContextualMatch -> {
+                val title = if (result.sourceText.length > 35) {
+                    result.sourceText.take(35).trim() + "..."
+                } else {
+                    result.sourceText.trim()
+                }
+
+                val body = buildString {
+                    appendLine("**العربية:** ${result.targetArabicText.trim()}")
+                    if (result.highlightedEntities.isNotEmpty()) {
+                        appendLine()
+                        appendLine("**المصطلحات الرئيسية:**")
+                        result.highlightedEntities.forEach { entity ->
+                            appendLine("• ${entity.englishTerm} -> ${entity.arabicEquivalent} (${entity.domain.name})")
+                        }
+                    }
+                    result.clinicalNotes?.takeIf { it.isNotBlank() }?.let {
+                        appendLine()
+                        appendLine("*إرشادات سريرية:* $it")
+                    }
+                }.trim()
+
+                title to body
+            }
+            is TranslationResult.ModelDownloadRequired -> {
+                val title = "Model Download Required"
+                val body = "**يتطلب تنزيل النموذج الموضعي**\n\nيرجى تنزيل نموذج الذكاء الاصطناعي الموضعي (1.1 GB) لترجمة الجمل الكاملة في وضع عدم الاتصال."
+                title to body
+            }
+            is TranslationResult.DecomposedCompoundMatch -> {
+                val title = result.sourceText.trim()
+                val body = buildString {
+                    appendLine("**العربية:** ${result.synthesizedArabicText.trim()}")
+                    appendLine("• مركب سريري (Compound Term)")
+                    appendLine()
+                    appendLine("**تفكيك العناصر (Components):**")
+                    result.subTokens.forEach { token ->
+                        val latin = token.latinRoot?.let { " (*$it*)" } ?: ""
+                        appendLine("• ${token.tokenEn} -> ${token.translationAr}$latin")
+                    }
+                }.trim()
+                title to body
+            }
             is TranslationResult.NotFound -> {
                 val title = result.sourceText.take(40).trim()
                 val body = "**لم يتم العثور على ترجمة معتمدة**\n\n${result.reason}"
@@ -118,11 +162,148 @@ object MedicalStickyCardMapper {
     }
 
     /**
+     * Resolves the effective normalized height of an existing sticky note, accounting for
+     * whether the card is collapsed/folded into a compact badge (~0.04f) or expanded (~0.16f).
+     */
+    fun getEffectiveHeightNorm(note: StickyCardAnnotation): Float =
+        if (note.isFolded) FOLDED_CARD_HEIGHT_NORM
+        else if (note.heightNorm > 0f) note.heightNorm
+        else DEFAULT_CARD_HEIGHT_NORM
+
+    /**
+     * Resolves collision-free coordinates [xNorm, yNorm] in normalized page space [0.0, 1.0].
+     *
+     * Features:
+     * 1. Filters [existingAnnotations] to those occupying the same margin column:
+     *    `abs(existing.xNorm - targetXNorm) < (cardWidthNorm * 0.5f)`.
+     * 2. Checks vertical overlap taking folded card dimensions into account:
+     *    `candY < existing.yNorm + existing.heightNorm + spacing` AND
+     *    `candY + cardHeightNorm > existing.yNorm - spacing`.
+     * 3. Performs downward slotting past colliding notes: pushes proposed `yNorm` to
+     *    `existing.yNorm + existing.heightNorm + verticalSpacingNorm` and re-evaluates iteratively.
+     * 4. If downward slotting overflows page bottom (exceeds 1.0 - cardHeight - pageMarginBottom),
+     *    attempts an upward search for gaps above [desiredYNorm].
+     * 5. If both downward and upward slots are saturated on the margin, flips [targetXNorm] to
+     *    the opposite margin column and repeats downward slotting.
+     * 6. Strictly clamps final coordinates to safely remain in [0.01, 0.99] bounds.
+     */
+    fun resolveCollisionFreeCoordinates(
+        targetXNorm: Float,
+        desiredYNorm: Float,
+        cardWidthNorm: Float = DEFAULT_CARD_WIDTH_NORM,
+        cardHeightNorm: Float = DEFAULT_CARD_HEIGHT_NORM,
+        existingAnnotations: List<StickyCardAnnotation>,
+        verticalSpacingNorm: Float = DEFAULT_VERTICAL_SPACING_NORM,
+        pageMarginBottomNorm: Float = DEFAULT_PAGE_MARGIN_BOTTOM_NORM
+    ): Pair<Float, Float> {
+        val pageMarginTopNorm = DEFAULT_PAGE_MARGIN_TOP_NORM
+        val maxBottomY = (1.0f - cardHeightNorm - pageMarginBottomNorm).coerceAtLeast(pageMarginTopNorm)
+
+        // Helper: Check if candidate vertical window [candY, candY + cardHeightNorm] collides with any note
+        fun findCollision(candY: Float, notes: List<StickyCardAnnotation>): StickyCardAnnotation? {
+            return notes.firstOrNull { existing ->
+                val existingHeight = getEffectiveHeightNorm(existing)
+                candY < (existing.yNorm + existingHeight + verticalSpacingNorm) &&
+                    (candY + cardHeightNorm) > (existing.yNorm - verticalSpacingNorm)
+            }
+        }
+
+        // Helper: Search for an open vertical slot in a specific margin column
+        fun findSlotInColumn(colX: Float): Float? {
+            val colNotes = existingAnnotations
+                .filter { kotlin.math.abs(it.xNorm - colX) < (cardWidthNorm * 0.5f) }
+                .sortedBy { it.yNorm }
+
+            if (colNotes.isEmpty()) {
+                return desiredYNorm.coerceIn(pageMarginTopNorm, maxBottomY)
+            }
+
+            // 1. Downward slotting
+            var candY = desiredYNorm.coerceIn(pageMarginTopNorm, maxBottomY)
+            var iterations = 0
+            val maxIterations = colNotes.size + 3
+            var downwardSuccess = false
+
+            while (iterations < maxIterations) {
+                val collision = findCollision(candY, colNotes)
+                if (collision == null) {
+                    if (candY in pageMarginTopNorm..maxBottomY) {
+                        downwardSuccess = true
+                    }
+                    break
+                } else {
+                    candY = collision.yNorm + getEffectiveHeightNorm(collision) + verticalSpacingNorm
+                    iterations++
+                }
+            }
+
+            if (downwardSuccess && candY <= maxBottomY) {
+                return candY
+            }
+
+            // 2. Upward search: when downward exceeds page bottom boundary, search for gaps above desiredYNorm
+            val upwardCandidates = mutableListOf<Float>()
+
+            for (note in colNotes) {
+                val upY = note.yNorm - verticalSpacingNorm - cardHeightNorm
+                if (upY in pageMarginTopNorm..maxBottomY) {
+                    if (findCollision(upY, colNotes) == null) {
+                        upwardCandidates.add(upY)
+                    }
+                }
+            }
+
+            if (findCollision(pageMarginTopNorm, colNotes) == null) {
+                upwardCandidates.add(pageMarginTopNorm)
+            }
+
+            if (upwardCandidates.isNotEmpty()) {
+                val preferred = upwardCandidates
+                    .filter { it <= desiredYNorm }
+                    .maxOrNull()
+                    ?: upwardCandidates.minByOrNull { kotlin.math.abs(it - desiredYNorm) }
+
+                if (preferred != null) {
+                    return preferred
+                }
+            }
+
+            return null
+        }
+
+        // Phase 1: Search within the target margin column
+        val primaryY = findSlotInColumn(targetXNorm)
+        if (primaryY != null) {
+            val clampedX = targetXNorm.coerceIn(0.01f, (1.0f - cardWidthNorm).coerceAtLeast(0.01f))
+            val clampedY = primaryY.coerceIn(0.01f, (1.0f - cardHeightNorm).coerceAtLeast(0.01f))
+            return clampedX to clampedY
+        }
+
+        // Phase 2: Target margin column saturated -> flip to opposite margin
+        val oppositeX = if (targetXNorm > 0.5f) {
+            0.02f // Flip right to left margin
+        } else {
+            (1.0f - cardWidthNorm - 0.02f).coerceIn(0f, 1f) // Flip left to right margin
+        }
+
+        val secondaryY = findSlotInColumn(oppositeX)
+        if (secondaryY != null) {
+            val clampedX = oppositeX.coerceIn(0.01f, (1.0f - cardWidthNorm).coerceAtLeast(0.01f))
+            val clampedY = secondaryY.coerceIn(0.01f, (1.0f - cardHeightNorm).coerceAtLeast(0.01f))
+            return clampedX to clampedY
+        }
+
+        // Phase 3: Both margins saturated fallback -> clamp to safe page bounds
+        val fallbackX = targetXNorm.coerceIn(0.01f, (1.0f - cardWidthNorm).coerceAtLeast(0.01f))
+        val fallbackY = desiredYNorm.coerceIn(pageMarginTopNorm, maxBottomY)
+        return fallbackX to fallbackY
+    }
+
+    /**
      * Calculates the nearest page margin coordinates $[xNorm, yNorm]$ in normalized page space $[0.0, 1.0]$.
      *
      * Snaps to either the right margin (standard reading flow for Arabic glosses) or left margin
-     * depending on text center X, and executes collision avoidance downward to prevent overlapping
-     * existing notes on the same margin.
+     * depending on text center X, and executes deterministic collision avoidance and stacking.
      */
     fun calculateMarginalCoordinates(
         selectionBoundsPageNorm: Rect,
@@ -148,33 +329,24 @@ object MedicalStickyCardMapper {
             0.02f
         }
 
-        var targetNormY = if (hasValidBounds) {
-            selectionBoundsPageNorm.top.coerceIn(0.02f, 1.0f - cardHeightNorm - 0.02f)
+        val desiredNormY = if (hasValidBounds) {
+            selectionBoundsPageNorm.top.coerceIn(
+                DEFAULT_PAGE_MARGIN_TOP_NORM,
+                (1.0f - cardHeightNorm - DEFAULT_PAGE_MARGIN_BOTTOM_NORM).coerceAtLeast(DEFAULT_PAGE_MARGIN_TOP_NORM)
+            )
         } else {
             0.20f
         }
 
-        // Avoid overlap with existing notes on the same margin side (within vertical threshold ± 0.04f)
-        val isRightSide = targetNormX > 0.5f
-        val sameMarginNotes = existingNotes.filter { note ->
-            (note.xNorm > 0.5f) == isRightSide
-        }
-
-        var collision = true
-        var attempts = 0
-        while (collision && attempts < 12) {
-            val hit = sameMarginNotes.any { note ->
-                kotlin.math.abs(note.yNorm - targetNormY) < 0.04f
-            }
-            if (hit) {
-                targetNormY = (targetNormY + 0.05f).coerceAtMost(1.0f - cardHeightNorm - 0.02f)
-                attempts++
-            } else {
-                collision = false
-            }
-        }
-
-        return targetNormX to targetNormY
+        return resolveCollisionFreeCoordinates(
+            targetXNorm = targetNormX,
+            desiredYNorm = desiredNormY,
+            cardWidthNorm = cardWidthNorm,
+            cardHeightNorm = cardHeightNorm,
+            existingAnnotations = existingNotes,
+            verticalSpacingNorm = DEFAULT_VERTICAL_SPACING_NORM,
+            pageMarginBottomNorm = DEFAULT_PAGE_MARGIN_BOTTOM_NORM
+        )
     }
 
     /**
@@ -195,12 +367,7 @@ object MedicalStickyCardMapper {
             cardHeightNorm = cardHeightNorm
         )
 
-        val isGeneralVocab = (result as? TranslationResult.LexicalMatch)?.sourceLexicon == "GENERAL_ACADEMIC_VOCAB"
-        val colorLong = if (isGeneralVocab) {
-            StickyCardPalette.PURPLE
-        } else {
-            resolvePaletteColor(result.domain)
-        }
+        val colorLong = StickyCardPalette.TEAL
         val (titleText, bodyContent) = formatCardContent(result)
 
         return StickyCardAnnotation(

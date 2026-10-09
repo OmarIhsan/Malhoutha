@@ -16,9 +16,30 @@ object MedicalTextSanitizer {
     private val INTERNAL_SENTENCE_BOUNDARY_REGEX = Regex("""\p{L}+[.?!]\s+\p{L}+""")
     private const val PUNCTUATION_TRIM_CHARS = ".,;:()[]{}<>\"'`~•·|—–-_،؛؟«»“”‘’"
 
+    val LEADING_STOP_WORDS = setOf(
+        "the", "a", "an", "this", "that", "these", "those",
+        "its", "their", "any", "some", "each", "every"
+    )
+
+    val TRAILING_STOP_WORDS = setOf(
+        "the", "a", "an", "this", "that", "these", "those",
+        "its", "their", "any", "some", "each", "every",
+        "and", "or", "in", "on", "at", "to", "for", "with", "by", "of",
+        "is", "are", "was", "were", "be", "been", "being"
+    )
+
+    val GENERIC_STOP_WORDS = setOf(
+        "the", "a", "an", "this", "that", "these", "those",
+        "its", "their", "any", "some", "each", "every",
+        "and", "or", "nor", "but", "so", "yet",
+        "in", "on", "at", "to", "for", "with", "by", "of", "from", "as", "into", "onto",
+        "is", "are", "was", "were", "be", "been", "being",
+        "it", "he", "she", "they", "we", "you", "i"
+    )
+
     enum class SelectionType {
         /**
-         * Concise term or compound noun phrase (≤ 4 tokens), dispatched to Tier 1 Lexicon.
+         * Concise term or compound noun phrase (≤ 6 tokens), dispatched to Tier 1 Lexicon.
          */
         CONCISE_PHRASE,
 
@@ -87,9 +108,10 @@ object MedicalTextSanitizer {
         if (sanitizedText.isBlank()) return SelectionType.CONCISE_PHRASE
 
         val tokens = tokenize(sanitizedText)
-        if (tokens.size <= 4) {
+        if (tokens.size <= 6) {
             // Only classify as sentence if there are multiple clauses with punctuation on both sides
-            if (hasInternalSentenceBoundary(sanitizedText)) {
+            // or if it's a full sentence with terminal punctuation
+            if (hasInternalSentenceBoundary(sanitizedText) || (tokens.size > 4 && containsTerminalSentencePunctuation(sanitizedText))) {
                 return SelectionType.SENTENCE_OR_PASSAGE
             }
             return SelectionType.CONCISE_PHRASE
@@ -104,6 +126,87 @@ object MedicalTextSanitizer {
         return text.trim()
             .split(MULTI_WHITESPACE_REGEX)
             .filter { it.isNotBlank() }
+    }
+
+    /**
+     * Strips recognized leading determiners and trailing stop words from token boundaries
+     * while preserving internal prepositions (e.g. "of" in "Striae of Retzius").
+     */
+    fun stripLeadingTrailingStopWords(tokens: List<String>): List<String> {
+        if (tokens.isEmpty()) return emptyList()
+
+        var start = 0
+        var end = tokens.size - 1
+
+        while (start <= end && LEADING_STOP_WORDS.contains(cleanToken(tokens[start]).lowercase())) {
+            start++
+        }
+        while (end >= start && TRAILING_STOP_WORDS.contains(cleanToken(tokens[end]).lowercase())) {
+            end--
+        }
+
+        return if (start <= end) {
+            tokens.subList(start, end + 1)
+        } else {
+            emptyList()
+        }
+    }
+
+    /**
+     * Generates sliding sub-phrase N-grams from tokens in greedy descending window order.
+     * Prioritizes longest window matches first (from min(tokens.size, maxN) down to minN).
+     * Preserves token order and filters out solitary stop words and invalid candidates.
+     */
+    fun generateSlidingNgrams(tokens: List<String>, minN: Int = 1, maxN: Int = 4): List<String> {
+        if (tokens.isEmpty()) return emptyList()
+        val result = mutableListOf<String>()
+        val effectiveMaxN = minOf(tokens.size, maxN)
+
+        for (windowSize in effectiveMaxN downTo minN) {
+            for (startIndex in 0..(tokens.size - windowSize)) {
+                val windowTokens = tokens.subList(startIndex, startIndex + windowSize)
+                val strippedWindow = stripLeadingTrailingStopWords(windowTokens)
+                if (strippedWindow.isNotEmpty() && isValidCandidatePhrase(strippedWindow)) {
+                    val strippedCandidate = strippedWindow.map { cleanToken(it) }.filter { it.isNotBlank() }.joinToString(" ")
+                    if (strippedCandidate.isNotBlank()) {
+                        result.add(strippedCandidate)
+                    }
+                }
+                if (isValidCandidatePhrase(windowTokens)) {
+                    val candidate = windowTokens.map { cleanToken(it) }.filter { it.isNotBlank() }.joinToString(" ")
+                    if (candidate.isNotBlank()) {
+                        result.add(candidate)
+                    }
+                }
+            }
+        }
+        return result.distinct()
+    }
+
+    /**
+     * Verifies that a candidate token list is valid for medical translation.
+     * Guards against false positives: single generic words (e.g., "of", "and", "in", "the")
+     * never resolve as solitary matches, and candidates must contain at least one non-stopword
+     * token with length >= 3.
+     */
+    fun isValidCandidatePhrase(tokens: List<String>): Boolean {
+        if (tokens.isEmpty()) return false
+        // Solitary stop word check
+        if (tokens.size == 1) {
+            val clean = cleanToken(tokens.first()).lowercase()
+            if (clean.length < 3 || GENERIC_STOP_WORDS.contains(clean)) {
+                return false
+            }
+        }
+        // Must contain at least one non-stopword token with length >= 3
+        return tokens.any { token ->
+            val clean = cleanToken(token).lowercase()
+            clean.length >= 3 && !GENERIC_STOP_WORDS.contains(clean)
+        }
+    }
+
+    private fun cleanToken(token: String): String {
+        return token.trim { it <= ' ' || it in PUNCTUATION_TRIM_CHARS }
     }
 
     private fun isFullSentence(text: String): Boolean {

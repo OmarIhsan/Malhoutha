@@ -29,6 +29,14 @@ import com.kyant.pdfcore.model.PdfDocument
 import com.kyant.pdfcore.raster.PdfRasterizer
 import com.kyant.pdfcore.security.PdfSecurityService
 import com.kyant.pdfcore.text.PdfTextBlock
+import com.malhoutha.core.document.DocumentFormatResolver
+import com.malhoutha.core.document.SelectableWordSpan
+import com.malhoutha.core.document.SupportedDocumentType
+import com.malhoutha.core.document.UniversalDocumentAdapter
+import com.malhoutha.core.document.converter.OfficeToPdfConverter
+import com.malhoutha.core.document.converter.OfficeToPdfNormalizer
+import com.malhoutha.core.document.ocr.OfflineDocumentOcrEngine
+import com.malhoutha.core.document.wrapper.ImageDocumentWrapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,7 +177,9 @@ data class PdfViewerUiState(
     /** True when the optional Office engine (LibreOffice) produced the pages on screen. */
     val renderedByOfficeEngine: Boolean = false,
     /** Procedural synthetic paper template (Ruled, Grid, Dot-Matrix, Cornell, Plain) if this document is a note. */
-    val paperConfig: com.chethan616.clearpdf.ui.paper.PaperConfig? = null
+    val paperConfig: com.chethan616.clearpdf.ui.paper.PaperConfig? = null,
+    /** Lightweight status text for on-the-fly document normalization */
+    val conversionProgressText: String? = null
 )
 
 class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel() {
@@ -204,6 +214,13 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
 
     private val textService = PdfServiceLocator.pdfTextService
 
+    private var activeDocumentAdapter: UniversalDocumentAdapter? = null
+    private var preExtractedSpans: Map<Int, List<SelectableWordSpan>> = emptyMap()
+
+    fun openDocument(context: Context, uri: Uri, password: String? = null) {
+        openPdf(context, uri, password)
+    }
+
     companion object {
         private const val DEFAULT_RENDER_WIDTH = 1200
         private const val MIN_RENDER_WIDTH = 720
@@ -223,6 +240,11 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
     }
 
     fun openPdf(context: Context, uri: Uri, password: String? = null) {
+        viewModelScope.launch {
+            runCatching { activeDocumentAdapter?.close() }
+            activeDocumentAdapter = null
+            preExtractedSpans = emptyMap()
+        }
         _uiState.value.document?.let { openPdfUseCase.close(it) }
         recycleBitmaps(_uiState.value.pageBitmaps)
         renderingPages.clear()
@@ -230,6 +252,7 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
         textLoadingPages.clear()
         _uiState.value = _uiState.value.copy(
             isLoading = true,
+            conversionProgressText = null,
             // A supplied password means this call is the actual unlock → drive the decrypt animation.
             decrypting = password != null,
             errorMessage = null,
@@ -291,6 +314,7 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
                     pageCount = doc.pageCount,
                     currentPage = 0,
                     isLoading = false,
+                    conversionProgressText = null,
                     decrypting = false,
                     passwordRequired = false,
                     passwordAttemptFailed = false,
@@ -353,17 +377,52 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     decrypting = false,
+                    conversionProgressText = null,
                     errorMessage = context.getString(R.string.viewer_open_failed)
                 )
             }
         }
     }
 
-    private fun openDocumentWithFallback(context: Context, sourceUri: Uri): Pair<PdfDocument, Uri> {
-        val targetUri = if (!UniversalDocumentConverter.isPdf(context, sourceUri)) {
-            UniversalDocumentConverter.convertToPdf(context, sourceUri)
-        } else {
-            sourceUri
+    private suspend fun openDocumentWithFallback(context: Context, sourceUri: Uri): Pair<PdfDocument, Uri> {
+        val docType = DocumentFormatResolver.resolveType(context, sourceUri)
+        val targetUri = when (docType) {
+            SupportedDocumentType.STANDALONE_IMAGE -> {
+                _uiState.value = _uiState.value.copy(conversionProgressText = "Preparing image document...")
+                val wrapper = ImageDocumentWrapper(context, listOf(sourceUri))
+                activeDocumentAdapter = wrapper
+                val pdfUri = wrapper.convertToPdf()
+                _uiState.value = _uiState.value.copy(conversionProgressText = null)
+                pdfUri
+            }
+            SupportedDocumentType.OFFICE_PRESENTATION, SupportedDocumentType.OFFICE_DOCUMENT, SupportedDocumentType.EPUB_MARKDOWN -> {
+                val conversionResult = OfficeToPdfConverter.convertToNormalizedPdf(
+                    context = context,
+                    sourceUri = sourceUri,
+                    onProgress = { progressMsg ->
+                        _uiState.value = _uiState.value.copy(conversionProgressText = progressMsg)
+                    }
+                )
+                preExtractedSpans = conversionResult.textSpansByPage
+                _uiState.value = _uiState.value.copy(conversionProgressText = null)
+                conversionResult.pdfUri
+            }
+            SupportedDocumentType.VECTOR_PDF, SupportedDocumentType.SCANNED_PDF -> {
+                if (!UniversalDocumentConverter.isPdf(context, sourceUri)) {
+                    val conversionResult = OfficeToPdfConverter.convertToNormalizedPdf(
+                        context = context,
+                        sourceUri = sourceUri,
+                        onProgress = { progressMsg ->
+                            _uiState.value = _uiState.value.copy(conversionProgressText = progressMsg)
+                        }
+                    )
+                    preExtractedSpans = conversionResult.textSpansByPage
+                    _uiState.value = _uiState.value.copy(conversionProgressText = null)
+                    conversionResult.pdfUri
+                } else {
+                    sourceUri
+                }
+            }
         }
         val sourceDescriptorSize = tryReadDescriptorSize(context, targetUri)
         if (sourceDescriptorSize == 0L) throw IllegalStateException("Selected document is empty")
@@ -471,6 +530,10 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
 
         viewModelScope.launch {
             val blocks = withContext(AppDispatchers.pdf) {
+                val preSpans = preExtractedSpans[pageIndex]
+                if (!preSpans.isNullOrEmpty()) {
+                    return@withContext OfflineDocumentOcrEngine.spansToOcrTextBlocks(preSpans, pageIndex)
+                }
                 // One full-document PdfBox parse at a time — see [textExtractionMutex].
                 val pdfBlocks = textExtractionMutex.withLock {
                     runCatching {
@@ -500,16 +563,25 @@ class PdfViewerViewModel(private val openPdfUseCase: OpenPdfUseCase) : ViewModel
         }
     }
 
-    /** Rasterizes [pageIndex] and runs it through [PdfServiceLocator.ocrService], reading/writing the disk cache. */
+    /** Rasterizes [pageIndex] and runs it through [OfflineDocumentOcrEngine], reading/writing the persistent SQLite cache. */
     private suspend fun loadOcrFallbackBlocks(context: Context, doc: PdfDocument, pageIndex: Int): List<OcrTextBlock> {
+        val docHash = OfflineDocumentOcrEngine.computeContentHash(doc.uri, doc.sizeBytes)
+        val cachedSpans = OfflineDocumentOcrEngine.getCachedSpans(context, docHash, pageIndex)
+        if (cachedSpans != null) {
+            return OfflineDocumentOcrEngine.spansToOcrTextBlocks(cachedSpans, pageIndex)
+        }
         OcrPageCache.read(context, doc, pageIndex)?.let { return it }
         val bitmap = runCatching {
             PdfRasterizer.rasterizePageBitmap(context, doc.uri, pageIndex)
         }.getOrNull() ?: return emptyList()
         return try {
-            val result = runCatching { PdfServiceLocator.ocrService.recognize(context, bitmap) }.getOrNull()
-                ?: return emptyList()
-            val blocks = groupOcrWordsIntoBlocks(result.words, pageIndex)
+            val spans = OfflineDocumentOcrEngine.recognizePage(context, docHash, pageIndex, bitmap)
+            val blocks = if (spans.isNotEmpty()) {
+                OfflineDocumentOcrEngine.spansToOcrTextBlocks(spans, pageIndex)
+            } else {
+                val result = runCatching { PdfServiceLocator.ocrService.recognize(context, bitmap) }.getOrNull()
+                result?.let { groupOcrWordsIntoBlocks(it.words, pageIndex) } ?: emptyList()
+            }
             OcrPageCache.write(context, doc, pageIndex, blocks)
             blocks
         } finally {

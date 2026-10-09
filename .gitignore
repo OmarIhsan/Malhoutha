@@ -70,3 +70,7 @@ scratch/
 # ADB test screenshots
 /screenshot.png
 
+# Python cache
+__pycache__/
+*.pyc
+

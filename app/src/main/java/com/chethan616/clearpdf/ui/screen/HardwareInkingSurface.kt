@@ -732,9 +732,7 @@ internal fun HardwareInkingSurface(
                         } else {
                             // Scenario A: Single pointer (stylus or finger drawing)
                             down.consume()
-                            if (!isLaser) {
-                                currentOnInteraction()
-                            }
+                            currentOnInteraction()
                             hostView.parent?.requestDisallowInterceptTouchEvent(true)
 
                             if (isLaser) {

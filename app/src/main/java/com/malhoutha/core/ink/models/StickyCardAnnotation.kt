@@ -7,12 +7,13 @@ import java.util.UUID
  */
 object StickyCardPalette {
     const val YELLOW = 0xFFFFF9C4L  // Classic Pastel Post-it
+    const val TEAL   = 0xFFE0F2F1L  // Soft Clinical Teal Post-it (Malhoutha Brand)
     const val GREEN  = 0xFFC8E6C9L  // Mint Green
     const val BLUE   = 0xFFBBDEFBL  // Sky Blue
     const val PEACH  = 0xFFFFE0B2L  // Warm Peach
     const val PURPLE = 0xFFE1BEE7L  // Soft Lavender
     const val ROSE   = 0xFFF8BBD0L  // Pastel Rose
-    val ALL = listOf(YELLOW, GREEN, BLUE, PEACH, PURPLE, ROSE)
+    val ALL = listOf(YELLOW, TEAL, GREEN, BLUE, PEACH, PURPLE, ROSE)
 }
 
 /**

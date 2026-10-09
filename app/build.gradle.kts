@@ -123,6 +123,10 @@ android {
         }
     }
     packaging {
+        jniLibs {
+            // Ensure 64-bit ARM runtime optimization
+            useLegacyPackaging = false
+        }
         resources {
             excludes += arrayOf(
                 "DebugProbesKt.bin",
@@ -139,6 +143,9 @@ android {
                 "META-INF/NOTICE.md"
             )
         }
+    }
+    aaptOptions {
+        noCompress += listOf("bin", "task", "tflite")
     }
     dependenciesInfo {
         includeInApk = false

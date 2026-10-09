@@ -5,6 +5,7 @@ import android.net.Uri
 import android.view.HapticFeedbackConstants
 import com.malhoutha.ui.LocalDevicePosture
 import com.malhoutha.ui.DevicePosture
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -147,6 +148,7 @@ fun HomeScreen(
     onRecentFileSelected: (Uri, String) -> Unit
 ) {
     val homeRecentLimit = 5
+    val configuration = LocalConfiguration.current
     val posture = LocalDevicePosture.current
     val isDarkMode = LocalIsDarkMode.current
     val isLight = !isDarkMode
@@ -546,7 +548,9 @@ fun HomeScreen(
                             )
                         }
                         if (posture.isTablet) {
-                            val gridCols = if (posture == DevicePosture.TabletLandscape) 3 else 2
+                            val gridCols = if (posture == DevicePosture.TabletLandscape) {
+                                if (configuration.screenWidthDp >= 1080) 4 else 3
+                            } else 2
                             visibleRecents.chunked(gridCols).forEach { rowGroup ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),

@@ -1,6 +1,7 @@
 package com.chethan616.clearpdf.ui.screen
 
 import android.graphics.Bitmap
+import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.StrikethroughS
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -66,6 +68,8 @@ import com.chethan616.clearpdf.ui.paper.PaperConfig
 import com.chethan616.clearpdf.ui.paper.drawSyntheticPaper
 import com.chethan616.clearpdf.ui.components.StickyNoteCard
 import com.malhoutha.core.ink.models.StickyCardAnnotation
+import com.chethan616.clearpdf.medical.interop.MedicalStickyCardMapper
+import com.chethan616.clearpdf.medical.domain.TranslationResult
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -98,6 +102,9 @@ import com.chethan616.clearpdf.ui.viewmodel.OcrTextBlock
 import com.chethan616.clearpdf.ui.viewmodel.OcrTextRange
 import kotlin.math.max
 import kotlin.math.min
+import com.chethan616.clearpdf.medical.ui.QuickTranslationPill
+import com.chethan616.clearpdf.medical.viewmodel.QuickTranslationState
+import com.chethan616.clearpdf.ui.screen.components.calculateStackedPillOffset
 
 /**
  * A single page inside the continuous (Adobe-style) vertical viewer.
@@ -150,8 +157,25 @@ internal fun PdfContinuousPage(
     onStickyNoteChanged: (StickyCardAnnotation) -> Unit = {},
     onDeleteStickyNote: (String) -> Unit = {},
     onPlaceStickyNote: (Offset) -> Unit = {},
+    onInsertAsStickyNote: (TranslationResult) -> Unit = { result ->
+        val newNote = MedicalStickyCardMapper.mapToStickyCard(
+            result = result,
+            pageIndex = page,
+            existingNotes = stickyNotes
+        )
+        onStickyNoteChanged(newNote)
+    },
     onPlaceImage: ((Offset) -> Unit)? = null,
-    onTransformGesture: ((centroid: Offset, pan: Offset, zoom: Float) -> Unit)? = null
+    onTransformGesture: ((centroid: Offset, pan: Offset, zoom: Float) -> Unit)? = null,
+    onDismissTooltip: () -> Unit = {},
+    isScrolling: Boolean = false,
+    onExplicitTranslateRequested: ((selectedText: String, selectionBounds: RectF) -> Unit)? = null,
+    quickTranslationState: QuickTranslationState = QuickTranslationState(),
+    onPlayAudio: ((String) -> Unit)? = null,
+    onCopySelection: (() -> Unit)? = null,
+    onHighlightSelection: (() -> Unit)? = null,
+    onAddNoteSelection: (() -> Unit)? = null,
+    onShareSelection: (() -> Unit)? = null
 ) {
     val inFlightState = remember(page) { InFlightInkState() }
     val hostView = LocalView.current
@@ -444,6 +468,7 @@ internal fun PdfContinuousPage(
             Box(Modifier.matchParentSize().pointerInput(page, marks.size) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    onDismissTooltip()
                     // If a markup is already selected, let its transform layer handle touches
                     // inside its frame (don't steal them here).
                     val sel = marks.getOrNull(selectedMarkupIndex)?.takeIf { it.isTransformable() }
@@ -516,6 +541,7 @@ internal fun PdfContinuousPage(
         if (activeTool == PdfEditTool.Eraser) {
             Box(Modifier.matchParentSize().pointerInput(page) {
                 detectTapGestures { p ->
+                    onDismissTooltip()
                     val frame = Rect(0f, 0f, size.width.toFloat(), size.height.toFloat())
                     val idx = marks.indexOfLast { it.hitTest(p, ocrBlocks, frame) }
                     if (idx >= 0) marks.removeAt(idx)
@@ -524,6 +550,7 @@ internal fun PdfContinuousPage(
             }.pointerInput(page) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    onDismissTooltip()
                     val initialCount = currentEvent.changes.count { it.pressed }
                     if (initialCount >= 2) {
                         do {
@@ -596,6 +623,7 @@ internal fun PdfContinuousPage(
             Box(Modifier.matchParentSize().pointerInput(page, activeTool, marks.size, stickyNotes.size, selectedMarkupIndex, activeImageId, selectedStickyNoteId) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    onDismissTooltip()
 
                     // 1. If an existing element is already selected, let its transform / editor layer handle touches within its bounds
                     if (activeTool == PdfEditTool.Text) {
@@ -781,6 +809,7 @@ internal fun PdfContinuousPage(
                         var mode = 0 // 1 = move, 2 = resize
                         detectDragGestures(
                             onDragStart = { local ->
+                                onDismissTooltip()
                                 val cur = marks.getOrNull(selectedMarkupIndex)
                                 val bb = cur?.movableBounds()
                                 // Convert the box-local touch back to page space.
@@ -820,6 +849,7 @@ internal fun PdfContinuousPage(
                     isToolActive = activeTool == PdfEditTool.StickyNote,
                     isSelected = isSelectedNote,
                     onSelect = {
+                        onDismissTooltip()
                         onSelectStickyNote(note.id)
                         onSelectMarkup(-1)
                         onActiveImageIdChanged(null)
@@ -1051,14 +1081,25 @@ internal fun PdfContinuousPage(
                                     (anchorRect.bottom / csz.height).coerceIn(0f, 1f)
                                 )
                             } else Rect.Zero
-                            BasicText(
-                                "Translate",
-                                style = TextStyle(Color(0xFF64D2FF), 13.sp, FontWeight.Medium),
+                            Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { onTranslateMarkup(selectedMarkupIndex, normRect) }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                            )
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Translate,
+                                    contentDescription = "Translate",
+                                    tint = Color(0xFFECECEC),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                BasicText(
+                                    "Translate",
+                                    style = TextStyle(Color(0xFFECECEC), 13.sp, FontWeight.Medium)
+                                )
+                            }
                         }
                         BasicText(
                             "Delete",
@@ -1070,6 +1111,53 @@ internal fun PdfContinuousPage(
                         )
                     }
                 }
+        }
+
+        // ── Stacked Quick Translation Pill directly above selection menu ──
+        val pageSpan = textSelection.pageSpan()
+        val isTextSelected = textSelection.hasSelection && !textSelection.gestureActive && !isScrolling &&
+                pageSpan != null && page in pageSpan && page == (textSelection.start?.page ?: -1)
+        val selectionBounds = if (isTextSelected && localPageSize.width > 0f && localPageSize.height > 0f) {
+            val norm = textSelection.selectionNormalizedRect(page)
+            if (norm != null) {
+                RectF(
+                    norm.left * localPageSize.width,
+                    norm.top * localPageSize.height,
+                    norm.right * localPageSize.width,
+                    norm.bottom * localPageSize.height
+                )
+            } else null
+        } else null
+
+        if (isTextSelected && selectionBounds != null) {
+            val selectedText = remember(textSelection.start, textSelection.end) {
+                textSelection.selectedText().trim()
+            }
+            if (selectedText.isNotBlank()) {
+                val pillOffset = remember(selectionBounds, localPageSize, localDensity) {
+                    calculateStackedPillOffset(
+                        selectionBounds = selectionBounds,
+                        viewportWidth = localPageSize.width,
+                        viewportHeight = localPageSize.height,
+                        density = localDensity,
+                        stackGapDp = 8.dp
+                    )
+                }
+
+                // Layer 1: Stacked Quick Translation Pill (anchored 8.dp above the single primary selection action bar)
+                if (quickTranslationState.hasTranslation || quickTranslationState.isLoading) {
+                    QuickTranslationPill(
+                        arabicTranslation = quickTranslationState.arabicText,
+                        isLoading = quickTranslationState.isLoading,
+                        clinicalDomain = quickTranslationState.clinicalDomain,
+                        onPlayAudio = { onPlayAudio?.invoke(selectedText) },
+                        onOpenDetails = {
+                            onExplicitTranslateRequested?.invoke(selectedText, selectionBounds)
+                        },
+                        modifier = Modifier.offset { pillOffset }
+                    )
+                }
+            }
         }
     }
 }

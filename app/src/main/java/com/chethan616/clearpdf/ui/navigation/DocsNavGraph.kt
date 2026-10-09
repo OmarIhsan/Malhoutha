@@ -341,31 +341,18 @@ fun DocsNavGraph(
 
         composable(ROUTE_HOME) {
             val homeContext = LocalContext.current
-            // Open picker that routes by document kind (spreadsheets → grid viewer, else PDF viewer).
-            val openDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                if (uri != null) {
-                    runCatching {
-                        homeContext.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
+            com.malhoutha.ui.home.HomeScreen(
+                onOpenDocument = { uri ->
                     navController.navigateToDocument(homeContext, uri)
-                }
-            }
-            HomeScreen(
-                backdrop = backdrop,
-                onNavigateToOpenPdf = {
-                    runCatching { openDocLauncher.launch(OPEN_DOC_MIMES) }
-                        .onFailure { navController.navigateToPdfViewer() }
                 },
-                onNavigateToScan = {
-                    navController.navigate(ROUTE_SCAN) { launchSingleTop = true }
+                onOpenLexiconDrawer = {
+                    navController.navigateToPdfViewer()
                 },
-                onStartNote = null,
-
-                onRecentFileSelected = { uri, name ->
-                    // Route by document kind: spreadsheets open in the interactive grid viewer,
-                    // everything else in the PDF viewer. The name comes from the recents entry
-                    // rather than a fresh provider query — see [navigateToDocument].
-                    navController.navigateToDocument(homeContext, uri, name)
+                onOpenDecks = {
+                    navController.navigate(ROUTE_TOOLS) { launchSingleTop = true }
+                },
+                onOpenSettings = {
+                    navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
                 }
             )
         }

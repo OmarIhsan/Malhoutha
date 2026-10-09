@@ -216,10 +216,109 @@ object MedicalLexiconSeeder {
             domain = MedicalDomain.ANATOMY,
             subspecialty = "ORAL_ANATOMY",
             latinName = "Corona dentis",
-            termsEn = listOf("Crown", "Tooth crown", "Clinical crown", "Anatomical crown"),
-            termsAr = listOf("تاج السن", "التاج السني", "التاج التشريحي", "التاج السريري"),
-            defEn = "The portion of a tooth that is normally covered by enamel (anatomical crown) or visible in the oral cavity above the gingival margin (clinical crown).",
-            defAr = "الجزء من السن المغطى بالميناء (التاج التشريحي) أو الجزء المرئي في جوف الفم فوق الحافة اللثوية (التاج السريري).",
+            termsEn = listOf("Crown", "Anatomical crown", "Tooth crown"),
+            termsAr = listOf("تاج السن / التاج التشريحي", "تاج السن", "التاج التشريحي", "التاج السني"),
+            defEn = "The anatomical portion of a tooth that is covered by enamel, extending from the occlusal or incisal surface to the cementoenamel junction.",
+            defAr = "الجزء التشريحي من السن المغطى بالميناء ويمتد من السطح الإطباقي أو القاطع حتى الملتقى الملاطي المينائي.",
+            source = "ORAL_ANATOMY_WHEELER"
+        ),
+        SeedConcept(
+            cui = "C0446700",
+            domain = MedicalDomain.ANATOMY,
+            subspecialty = "ORAL_ANATOMY",
+            latinName = "Corona clinica",
+            termsEn = listOf("Clinical crown"),
+            termsAr = listOf("التاج السريري"),
+            defEn = "The portion of the tooth that is visible and exposed in the oral cavity above the gingival margin.",
+            defAr = "الجزء من السن المرئي والبارز في جوف الفم فوق الحافة اللثوية.",
+            source = "ORAL_ANATOMY_WHEELER"
+        ),
+        SeedConcept(
+            cui = "C0008940",
+            domain = MedicalDomain.GENERAL_CLINICAL,
+            subspecialty = "DIAGNOSTICS",
+            latinName = "Clinicus",
+            termsEn = listOf("Clinical"),
+            termsAr = listOf("سريري / إكلينيكي", "سريري", "إكلينيكي"),
+            defEn = "Relating to the observation, examination, and treatment of patients rather than theoretical study.",
+            defAr = "متعلق بالفحص الطبي العملي وعلاج المرضى مباشرة.",
+            source = "DORLAND_MEDICAL"
+        ),
+        SeedConcept(
+            cui = "C0031809",
+            domain = MedicalDomain.GENERAL_CLINICAL,
+            subspecialty = "DIAGNOSTICS",
+            latinName = null,
+            termsEn = listOf("Clinical examination", "Clinical exam"),
+            termsAr = listOf("فحص سريري / فحص إكلينيكي", "الفحص السريري", "فحص سريري"),
+            defEn = "The physical examination of a patient to detect signs of disease, oral pathology, or systemic symptoms.",
+            defAr = "الفحص الطبي المباشر للمريض للكشف عن علامات وأعراض المرض أو الآفات الفموية.",
+            source = "DORLAND_MEDICAL"
+        ),
+        SeedConcept(
+            cui = "C0681878",
+            domain = MedicalDomain.GENERAL_CLINICAL,
+            subspecialty = "DIAGNOSTICS",
+            latinName = null,
+            termsEn = listOf("Clinical significance", "Clinical relevance"),
+            termsAr = listOf("أهمية سريرية / دلالة سريرية", "أهمية سريرية", "دلالة سريرية"),
+            defEn = "The practical importance or diagnostic relevance of a finding, trial result, or observation in patient care.",
+            defAr = "الأهمية العملية أو الدلالة التطبيقية لنتيجة أو تشخيص في رعاية المرضى.",
+            source = "DORLAND_MEDICAL"
+        ),
+        SeedConcept(
+            cui = "C1518013",
+            domain = MedicalDomain.GENERAL_CLINICAL,
+            subspecialty = "GENERAL_CLINICAL",
+            latinName = "Margo",
+            termsEn = listOf("Margin", "Margins"),
+            termsAr = listOf("حافة / هامش", "حافة", "هامش"),
+            defEn = "The border, edge, or boundary of an anatomical structure, wound, lesion, or dental restoration.",
+            defAr = "الحد أو الحافة الخارجية المحيطة ببنية تشريحية أو جرح أو آفة أو ترميم سني.",
+            source = "DORLAND_MEDICAL"
+        ),
+        SeedConcept(
+            cui = "C0005521",
+            domain = MedicalDomain.GENERAL_CLINICAL,
+            subspecialty = "GENERAL_CLINICAL",
+            latinName = "Biologicus",
+            termsEn = listOf("biologic", "biological", "biology"),
+            termsAr = listOf("حيوي", "بيولوجي", "علم الأحياء"),
+            defEn = "Relating to biology or living organisms; biological products, processes, or structures.",
+            defAr = "متعلق بعلم الأحياء أو الكائنات الحية؛ أو مستحضر / بنية ذات أصل حيوي.",
+            source = "WHO_UMD_GENERAL"
+        ),
+        SeedConcept(
+            cui = "C0225686",
+            domain = MedicalDomain.ANATOMY,
+            subspecialty = "PERIODONTICS",
+            latinName = "Margo gingivalis",
+            termsEn = listOf("Gingival margin", "Margin of the gingiva", "Marginal gingiva"),
+            termsAr = listOf("الحافة اللثوية", "حافة اللثة", "اللثة الحفافية"),
+            defEn = "The coronal edge or free border of the gingiva surrounding the cervical portion of the tooth crown.",
+            defAr = "الحافة الحرة العلوية للثة المحيطة بالمنطقة العنقية لتاج السن.",
+            source = "PERIODONTOLOGY_CARRANZA"
+        ),
+        SeedConcept(
+            cui = "C0205064",
+            domain = MedicalDomain.ANATOMY,
+            subspecialty = "ORAL_ANATOMY",
+            latinName = "Cervicalis",
+            termsEn = listOf("Cervical"),
+            termsAr = listOf("عنقي", "عنقي سني"),
+            defEn = "Relating to the cervix or neck of a tooth adjacent to the cementoenamel junction.",
+            defAr = "متعلق بعنق السن أو المنطقة المجاورة للملتقى المينائي الملاطي (CEJ).",
+            source = "ORAL_ANATOMY_WHEELER"
+        ),
+        SeedConcept(
+            cui = "C0224687",
+            domain = MedicalDomain.ANATOMY,
+            subspecialty = "ORAL_ANATOMY",
+            latinName = "Cuspis dentis",
+            termsEn = listOf("Cusp", "Tooth cusp", "Dental cusp", "Cusps"),
+            termsAr = listOf("شرفة السن / حدبة السن", "شرفة السن", "حدبة السن", "شرفة"),
+            defEn = "An elevation or pointed mound on the occlusal surface of a premolar or molar tooth or the incisal portion of a canine.",
+            defAr = "نتوء هرمي أو بارزة على السطح الإطباقي للأضراس والضواحك أو حافة الناب القاطعة.",
             source = "ORAL_ANATOMY_WHEELER"
         ),
         SeedConcept(
@@ -228,10 +327,32 @@ object MedicalLexiconSeeder {
             subspecialty = "ORAL_ANATOMY",
             latinName = "Radix dentis",
             termsEn = listOf("Root", "Tooth root", "Dental root", "Roots"),
-            termsAr = listOf("جذر السن", "الجذر السني", "جذور الأسنان"),
-            defEn = "The anatomical portion of the tooth covered by cementum, embedded in the alveolar bone socket, and anchored by the periodontal ligament.",
-            defAr = "الجزء التشريحي من السن المغطى بالملاط، والمنغرس داخل السنخ العظمي والمثبت بواسطة رباط دواعم السن.",
+            termsAr = listOf("جذر السن", "الجذر السني", "جذر / أصل", "جذور الأسنان"),
+            defEn = "The anatomical portion of the tooth covered by cementum, embedded in the alveolar bone socket, and anchored by the periodontal ligament (with secondary general meaning: root/origin).",
+            defAr = "الجزء التشريحي من السن المغطى بالملاط والمنغرس داخل السنخ العظمي والمثبت برباط دواعم السن (وله معنى عام ثانوي: جذر أو أصل الشيء).",
             source = "ORAL_ANATOMY_WHEELER"
+        ),
+        SeedConcept(
+            cui = "C0011342",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "OPERATIVE_DENTISTRY",
+            latinName = "Restauratio dentis",
+            termsEn = listOf("Restoration", "Dental restoration", "Tooth restoration", "Restorations"),
+            termsAr = listOf("حشوة / ترميم سني", "ترميم سني", "حشوة سنية"),
+            defEn = "A material or prosthesis placed to restore the morphological integrity, function, and aesthetics of a defective or damaged tooth.",
+            defAr = "مادة سنية أو تعويض يُوضع لإعادة الشكل التشريحي والوظيفة والناحية الجمالية للسن المتضرر.",
+            source = "OPERATIVE_DENTISTRY_STURDEVANT"
+        ),
+        SeedConcept(
+            cui = "C0181781",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "OPERATIVE_DENTISTRY",
+            latinName = "Praeparatio cavitatis",
+            termsEn = listOf("Preparation", "Cavity preparation", "Tooth preparation"),
+            termsAr = listOf("تحضير السن / تحضير الحفرة", "تحضير السن", "تحضير الحفرة السنية"),
+            defEn = "The mechanical alteration of a defective tooth to receive a restorative material or crown according to biomechanical principles.",
+            defAr = "التعديل الميكانيكي الجراحي لبنية السن المصاب وفق أسس حيوية ميكانيكية لتجهيزه لاستقبال مادة الترميم أو التاج.",
+            source = "OPERATIVE_DENTISTRY_STURDEVANT"
         ),
         SeedConcept(
             cui = "C0224684",
@@ -600,70 +721,344 @@ object MedicalLexiconSeeder {
         )
     )
 
+    // =========================================================================
+    // MODULAR DEPARTMENT SEED CHUNKS (PREVENT 64KB METHOD CODE LIMIT)
+    // =========================================================================
+
+    val ENDODONTIC_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_ENDO_001",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Endodontics",
+            latinName = "Canalis radicis",
+            termsEn = listOf("working length", "root canal working length"),
+            termsAr = listOf("الطول العامل", "طول القناة العامل"),
+            defEn = "The distance from a coronal reference point to the point at which canal preparation terminates.",
+            defAr = "المسافة من نقطة مرجعية تاجية إلى النقطة التي يجب أن ينتهي عندها تحضير القناة وحشوها.",
+            source = "WHO_UMD_ENDODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_ENDO_002",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Endodontics",
+            latinName = null,
+            termsEn = listOf("obturation", "root canal obturation"),
+            termsAr = listOf("حشو القناة السنية", "السد القنوي"),
+            defEn = "The three-dimensional hermetic filling and sealing of the cleaned and shaped root canal system.",
+            defAr = "الحشو الإحكامي ثلاثي الأبعاد لكامل الجهاز القنوي بعد تنظيفه وتشكيله لمنع التسرب الإنتاني.",
+            source = "WHO_UMD_ENDODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_ENDO_003",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Endodontics",
+            latinName = null,
+            termsEn = listOf("gutta-percha", "guttapercha", "GP point"),
+            termsAr = listOf("الكوتابيركا", "الطبرخي"),
+            defEn = "The thermoplastic inert core obturation material used in endodontic therapy.",
+            defAr = "المادة اللدنة الحرارية الخاملة المستخدمة لسد قنوات الجذور السنية.",
+            source = "WHO_UMD_ENDODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_ENDO_009",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Endodontics",
+            latinName = null,
+            termsEn = listOf("smear layer", "endodontic smear layer"),
+            termsAr = listOf("طبقة اللطاخة", "مسحوق البرادة"),
+            defEn = "A microcrystalline film of dentinal debris formed on canal walls during mechanical instrumentation.",
+            defAr = "طبقة مجهرية رقيقة من برادة العاج تتشكل على جدران القنوات أثناء البرد الآلي.",
+            source = "WHO_UMD_ENDODONTICS"
+        )
+    )
+
+    val PERIODONTIC_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_PERIO_001",
+            domain = MedicalDomain.ANATOMY,
+            subspecialty = "Periodontics",
+            latinName = "Periodontium",
+            termsEn = listOf("biologic width", "biological width"),
+            termsAr = listOf("العرض الحيوي", "الاتساع البيولوجي"),
+            defEn = "The physiological dimension of junctional epithelium and supracrestal connective tissue attachment.",
+            defAr = "المسافة الفيزيولوجية الثابتة التي تشغلها الظهارة الموصلة وألياف النسيج الضام فوق الحافة العظمية.",
+            source = "WHO_UMD_PERIODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_PERIO_003",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Periodontics",
+            latinName = null,
+            termsEn = listOf("furcation involvement", "furcation defect"),
+            termsAr = listOf("إصابة مفترق الجذور", "إصابة التشعب الجذري"),
+            defEn = "Pathological bone resorption occurring in the interradicular area of multi-rooted teeth.",
+            defAr = "امتصاص العظم وفقدان الارتباط في منطقة تشعب جذور الأسنان متعددة الجذور.",
+            source = "WHO_UMD_PERIODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_PERIO_007",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Periodontics",
+            latinName = null,
+            termsEn = listOf("clinical attachment loss", "CAL"),
+            termsAr = listOf("فقدان الارتباط السريري", "فقد الارتباط اللثوي"),
+            defEn = "The clinical extent of periodontal destruction measured from the CEJ to the base of the pocket.",
+            defAr = "المقياس السريري لمقدار تخرب الأنسجة الداعمة مقاساً من ملتقى الميناء والملاط حتى قاع الجيب اللثوي.",
+            source = "WHO_UMD_PERIODONTICS"
+        )
+    )
+
+    val PROSTHODONTIC_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_PROSTH_001",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Prosthodontics",
+            latinName = null,
+            termsEn = listOf("abutment", "dental abutment"),
+            termsAr = listOf("دعامة سنية", "سن دعامة"),
+            defEn = "A natural tooth or dental implant fixture utilized to retain and support a prosthetic restoration.",
+            defAr = "السن الطبيعي أو الغرسة السنية التي تستند إليها وتثبت فوقها التعويضات السنية.",
+            source = "WHO_UMD_PROSTHODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_PROSTH_002",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "ProsthodONTICS",
+            latinName = null,
+            termsEn = listOf("pontic", "bridge pontic"),
+            termsAr = listOf("دمية الجسر", "سن صناعي بديل"),
+            defEn = "The artificial tooth suspended between abutments in a fixed partial denture.",
+            defAr = "السن الصناعي المعلق في الجسر السني الثابت الذي يحل محل السن المفقود.",
+            source = "WHO_UMD_PROSTHODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_PROSTH_003",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Prosthodontics",
+            latinName = null,
+            termsEn = listOf("cantilever bridge", "cantilever"),
+            termsAr = listOf("جسر ناتئ", "جسر ذراعي معلق"),
+            defEn = "A fixed partial denture in which the pontic is retained on only one end.",
+            defAr = "جسر سني ثابت تدعم فيه دمية الجسر وتثبت من طرف واحد فقط بالدعامة.",
+            source = "WHO_UMD_PROSTHODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_PROSTH_005",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Prosthodontics",
+            latinName = null,
+            termsEn = listOf("chamfer", "chamfer finish line"),
+            termsAr = listOf("شطب حفافي", "تشامفر"),
+            defEn = "A concave marginal finish line design widely indicated for fixed restorations.",
+            defAr = "خط إنهاء مقعر ذو زاوية منفرجة يؤمن سماكة كافية للتيجان الخزفية والمعدنية.",
+            source = "WHO_UMD_PROSTHODONTICS"
+        )
+    )
+
+    val OPERATIVE_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_OPER_001",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Operative Dentistry",
+            latinName = null,
+            termsEn = listOf("etching", "acid etching"),
+            termsAr = listOf("خرش حمضي", "تخريش حمضي"),
+            defEn = "Application of phosphoric acid to create microporosities for resin micromechanical retention.",
+            defAr = "تطبيق حمض الفوسفور لخلق مسامات مجهرية تؤمن التثبيت الميكانيكي للحشوة.",
+            source = "WHO_UMD_OPERATIVE"
+        ),
+        SeedConcept(
+            cui = "DENT_OPER_007",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Operative Dentistry",
+            latinName = null,
+            termsEn = listOf("C-factor", "cavity configuration factor"),
+            termsAr = listOf("معامل التكوين", "عامل التقلص السطحي"),
+            defEn = "The ratio of bonded restoration surface area to unbonded surface area.",
+            defAr = "نسبة عدد السطوح الملتصقة لمادة الحشوة إلى السطوح الحرة غير الملتصقة.",
+            source = "WHO_UMD_OPERATIVE"
+        ),
+        SeedConcept(
+            cui = "DENT_OPER_010",
+            domain = MedicalDomain.PROCEDURE,
+            subspecialty = "Operative Dentistry",
+            latinName = null,
+            termsEn = listOf("composite resin", "dental composite"),
+            termsAr = listOf("راتينج مركب", "حشوة تجميلية"),
+            defEn = "Tooth-colored restorative material composed of resin matrix and inorganic fillers.",
+            defAr = "مادة ترميمية بلون الأسنان تتكون من مصفوفة راتينجية وجزيئات حشوية لاعضوية.",
+            source = "WHO_UMD_OPERATIVE"
+        )
+    )
+
+    val ORAL_SURGERY_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_SURG_001",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Oral Surgery",
+            latinName = "Alveolitis",
+            termsEn = listOf("dry socket", "alveolar osteitis", "alveolitis"),
+            termsAr = listOf("التهاب السنخ الجاف", "التهاب العظم السنخي", "السنخ الجاف"),
+            defEn = "Painful postoperative complication caused by premature loss of the blood clot from the socket.",
+            defAr = "مضاعفة مؤلمة تلي خلع الأسنان تنتج عن انحلال أو فقدان الخثرة الدموية من السنخ.",
+            source = "WHO_UMD_SURGERY"
+        ),
+        SeedConcept(
+            cui = "DENT_SURG_002",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Oral Surgery",
+            latinName = null,
+            termsEn = listOf("impaction", "impacted tooth"),
+            termsAr = listOf("انحشار السن", "سن مطمور"),
+            defEn = "Failure of a tooth to erupt into the normal arch position due to obstruction.",
+            defAr = "فشل بزوغ السن في موقعه الطبيعي في القوس السنية بسبب إعاقة عظمية أو سنية.",
+            source = "WHO_UMD_SURGERY"
+        )
+    )
+
+    val ORTHODONTIC_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_ORTHO_001",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Orthodontics",
+            latinName = "Malocclusio",
+            termsEn = listOf("malocclusion", "dental malocclusion"),
+            termsAr = listOf("سوء الإطباق", "سوء إطباق الأسنان"),
+            defEn = "Any deviation from normal, physiologically ideal occlusion.",
+            defAr = "أي اضطراب أو شذوذ عن الإطباق المثالي الطبيعي في توضع الأسنان أو القوسين.",
+            source = "WHO_UMD_ORTHODONTICS"
+        ),
+        SeedConcept(
+            cui = "DENT_ORTHO_003",
+            domain = MedicalDomain.DIAGNOSTIC,
+            subspecialty = "Orthodontics",
+            latinName = null,
+            termsEn = listOf("cephalometrics", "cephalometric"),
+            termsAr = listOf("القياسات السيفالومترية", "تحليل سيفالومتري"),
+            defEn = "The diagnostic study and measurement of landmarks on lateral skull radiographs.",
+            defAr = "دراسة وقياس الأبعاد العظمية والسنية على صور الجمجمة الشعاعية الجانبية.",
+            source = "WHO_UMD_ORTHODONTICS"
+        )
+    )
+
+    val ORAL_PATHOLOGY_CLINICAL_CONCEPTS: List<SeedConcept> = listOf(
+        SeedConcept(
+            cui = "DENT_PATH_001",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Oral Pathology",
+            latinName = "Leukoplakia",
+            termsEn = listOf("leukoplakia", "oral leukoplakia"),
+            termsAr = listOf("طلاوة بيضاء", "تقرن فموي أبيض"),
+            defEn = "A predominantly white plaque of questionable risk carrying potential for malignancy.",
+            defAr = "آفة فموية بيضاء صفيحية غير قابلة للكشط تعد آفة محتملة الخباثة.",
+            source = "WHO_UMD_PATHOLOGY"
+        ),
+        SeedConcept(
+            cui = "DENT_PATH_003",
+            domain = MedicalDomain.PATHOLOGY,
+            subspecialty = "Oral Pathology",
+            latinName = "Lichen planus",
+            termsEn = listOf("lichen planus", "oral lichen planus"),
+            termsAr = listOf("حزاز مسطح", "الحزاز المنبسط الفموي"),
+            defEn = "A chronic autoimmune inflammatory mucocutaneous disorder with Wickham striae.",
+            defAr = "مرض التهابي مناعي ذاتي مزمن يصيب المخاطية الفموية ويتميز بخطوط ويكهام البيضاء.",
+            source = "WHO_UMD_PATHOLOGY"
+        )
+    )
+
+    val ALL_SEED_CHUNKS: List<List<SeedConcept>> by lazy {
+        listOf(
+            DEFAULT_SEED_CONCEPTS,
+            ENDODONTIC_CLINICAL_CONCEPTS,
+            PERIODONTIC_CLINICAL_CONCEPTS,
+            PROSTHODONTIC_CLINICAL_CONCEPTS,
+            OPERATIVE_CLINICAL_CONCEPTS,
+            ORAL_SURGERY_CLINICAL_CONCEPTS,
+            ORTHODONTIC_CLINICAL_CONCEPTS,
+            ORAL_PATHOLOGY_CLINICAL_CONCEPTS
+        )
+    }
+
     /**
      * Inserts default medical concepts, terms, and definitions into the database.
      * Guarantees all essential dental & medical concepts exist even if database was partially initialized.
      */
-    suspend fun seedDefaultLexicon(dao: MedicalLexiconDao) {
-        // If "Enamel" already exists and has a healthy term count, skip redundant seeding
-        if (dao.findExactMatch("Enamel") != null && dao.getTermCount() >= 50) {
+    suspend fun seedDefaultLexicon(dao: MedicalLexiconDao, forceRefresh: Boolean = false) {
+        val clinicalMatch = dao.findExactMatch("clinical")
+        val biologicMatch = dao.findExactMatch("biologic")
+        val needsSeed = forceRefresh ||
+            dao.getTermCount() == 0 ||
+            dao.findExactMatch("Enamel") == null ||
+            clinicalMatch == null ||
+            clinicalMatch.domain != MedicalDomain.GENERAL_CLINICAL ||
+            biologicMatch == null
+
+        if (!needsSeed && dao.getTermCount() >= 50) {
             return
         }
 
-        for (item in DEFAULT_SEED_CONCEPTS) {
-            val concept = MedicalConceptEntity(
-                cui = item.cui,
-                category = item.domain.name,
-                subspecialty = item.subspecialty,
-                latinName = item.latinName
-            )
-            val conceptId = dao.insertConcept(concept)
+        // If refreshing corrupted/outdated seeds or missing landmark terms, clear old concepts to ensure clean state
+        if (forceRefresh || (clinicalMatch != null && clinicalMatch.domain != MedicalDomain.GENERAL_CLINICAL) || biologicMatch == null) {
+            dao.clearConcepts()
+        }
 
-            // Insert all English term variations
-            for ((index, enTerm) in item.termsEn.withIndex()) {
-                val entity = MedicalTermEntity(
-                    conceptId = conceptId,
-                    langCode = "en",
-                    termText = enTerm,
-                    isPreferred = (index == 0),
-                    source = item.source
+        for (chunk in ALL_SEED_CHUNKS) {
+            for (item in chunk) {
+                val concept = MedicalConceptEntity(
+                    cui = item.cui,
+                    category = item.domain.name,
+                    subspecialty = item.subspecialty,
+                    latinName = item.latinName
                 )
-                dao.insertTerm(entity)
-            }
+                val conceptId = dao.insertConcept(concept)
 
-            // Insert all Arabic term variations
-            for ((index, arTerm) in item.termsAr.withIndex()) {
-                val entity = MedicalTermEntity(
-                    conceptId = conceptId,
-                    langCode = "ar",
-                    termText = arTerm,
-                    isPreferred = (index == 0),
-                    source = item.source
-                )
-                dao.insertTerm(entity)
-            }
+                // Insert all English term variations
+                for ((index, enTerm) in item.termsEn.withIndex()) {
+                    val entity = MedicalTermEntity(
+                        conceptId = conceptId,
+                        langCode = "en",
+                        termText = enTerm,
+                        isPreferred = (index == 0),
+                        source = item.source
+                    )
+                    dao.insertTerm(entity)
+                }
 
-            // Insert Latin name if distinct from primary English term
-            if (item.latinName != null && !item.termsEn.any { it.equals(item.latinName, ignoreCase = true) }) {
-                val laTerm = MedicalTermEntity(
-                    conceptId = conceptId,
-                    langCode = "la",
-                    termText = item.latinName,
-                    isPreferred = false,
-                    source = item.source
-                )
-                dao.insertTerm(laTerm)
-            }
+                // Insert all Arabic term variations
+                for ((index, arTerm) in item.termsAr.withIndex()) {
+                    val entity = MedicalTermEntity(
+                        conceptId = conceptId,
+                        langCode = "ar",
+                        termText = arTerm,
+                        isPreferred = (index == 0),
+                        source = item.source
+                    )
+                    dao.insertTerm(entity)
+                }
 
-            // Insert clinical definitions
-            if (item.defEn != null || item.defAr != null) {
-                val def = MedicalDefinitionEntity(
-                    conceptId = conceptId,
-                    definitionEn = item.defEn,
-                    definitionAr = item.defAr
-                )
-                dao.insertDefinition(def)
+                // Insert Latin name if distinct from primary English term
+                if (item.latinName != null && !item.termsEn.any { it.equals(item.latinName, ignoreCase = true) }) {
+                    val laTerm = MedicalTermEntity(
+                        conceptId = conceptId,
+                        langCode = "la",
+                        termText = item.latinName,
+                        isPreferred = false,
+                        source = item.source
+                    )
+                    dao.insertTerm(laTerm)
+                }
+
+                // Insert clinical definitions
+                if (item.defEn != null || item.defAr != null) {
+                    val def = MedicalDefinitionEntity(
+                        conceptId = conceptId,
+                        definitionEn = item.defEn,
+                        definitionAr = item.defAr
+                    )
+                    dao.insertDefinition(def)
+                }
             }
         }
     }
 }
+

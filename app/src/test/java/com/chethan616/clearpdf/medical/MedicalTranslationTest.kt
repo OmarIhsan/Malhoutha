@@ -17,6 +17,7 @@ import com.malhoutha.core.ink.models.StickyCardPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -34,13 +35,23 @@ class MedicalTranslationTest {
         val generalTerms = mutableListOf<GeneralTermEntity>()
         private var idGen = 1L
 
-        override fun findExactGeneralTerm(normalizedWord: String): GeneralTermEntity? {
-            return generalTerms.firstOrNull { it.termEn.equals(normalizedWord.trim(), ignoreCase = true) }
+        override fun findExactGeneralTerm(term: String): GeneralTermEntity? {
+            return generalTerms.firstOrNull { it.termEn.equals(term.trim(), ignoreCase = true) }
+        }
+
+        override fun findBatchGeneralTerms(terms: List<String>): List<GeneralTermEntity> {
+            val termsLower = terms.map { it.trim().lowercase() }.toSet()
+            return generalTerms.filter { termsLower.contains(it.termEn.trim().lowercase()) }
         }
 
         override fun findPrefixMatches(prefix: String): List<GeneralTermEntity> {
             val clean = prefix.trim().lowercase()
             return generalTerms.filter { it.termEn.lowercase().startsWith(clean) }.take(3)
+        }
+
+        override fun searchGeneralTerms(query: String, limit: Int): List<GeneralTermEntity> {
+            val clean = query.trim().lowercase()
+            return generalTerms.filter { it.termEn.lowercase().contains(clean) }.take(limit)
         }
 
         override fun insertTerms(terms: List<GeneralTermEntity>): List<Long> {
@@ -55,7 +66,17 @@ class MedicalTranslationTest {
             return ids
         }
 
+        override fun insertTerm(term: GeneralTermEntity): Long {
+            val id = idGen++
+            generalTerms.add(term.copy(id = id))
+            return id
+        }
+
         override fun countTerms(): Int = generalTerms.size
+
+        override fun countTerm(term: String): Int {
+            return generalTerms.count { it.termEn.equals(term.trim(), ignoreCase = true) }
+        }
     }
 
     class FakeMedicalLexiconDao : MedicalLexiconDao {
@@ -69,7 +90,9 @@ class MedicalTranslationTest {
             val term = terms.firstOrNull { it.langCode == "en" && it.termText.equals(normalizedText, ignoreCase = true) }
                 ?: return null
             val concept = concepts.firstOrNull { it.conceptId == term.conceptId } ?: return null
-            val arTerm = terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "ar" } ?: return null
+            val arTerm = terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "ar" && it.isPreferred }
+                ?: terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "ar" }
+                ?: return null
             val def = definitions.firstOrNull { it.conceptId == concept.conceptId }
 
             return LexicalQueryResult(
@@ -85,11 +108,19 @@ class MedicalTranslationTest {
             )
         }
 
+        override fun findExactMatches(candidateTerms: List<String>): List<LexicalQueryResult> {
+            val termsLower = candidateTerms.map { it.trim().lowercase() }.toSet()
+            return terms.filter { it.langCode == "en" && termsLower.contains(it.termText.trim().lowercase()) }
+                .mapNotNull { findExactMatch(it.termText) }
+        }
+
         override fun findExactMatchArabic(normalizedArabicText: String): LexicalQueryResult? {
             val term = terms.firstOrNull { it.langCode == "ar" && it.termText.equals(normalizedArabicText, ignoreCase = true) }
                 ?: return null
             val concept = concepts.firstOrNull { it.conceptId == term.conceptId } ?: return null
-            val enTerm = terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "en" } ?: return null
+            val enTerm = terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "en" && it.isPreferred }
+                ?: terms.firstOrNull { it.conceptId == concept.conceptId && it.langCode == "en" }
+                ?: return null
             val def = definitions.firstOrNull { it.conceptId == concept.conceptId }
 
             return LexicalQueryResult(
@@ -118,8 +149,8 @@ class MedicalTranslationTest {
             return id
         }
 
-        override fun insertConcepts(conceptsList: List<MedicalConceptEntity>): List<Long> {
-            return conceptsList.map { insertConcept(it) }
+        override fun insertConcepts(concepts: List<MedicalConceptEntity>): List<Long> {
+            return concepts.map { insertConcept(it) }
         }
 
         override fun insertTerm(term: MedicalTermEntity): Long {
@@ -128,8 +159,8 @@ class MedicalTranslationTest {
             return id
         }
 
-        override fun insertTerms(termsList: List<MedicalTermEntity>): List<Long> {
-            return termsList.map { insertTerm(it) }
+        override fun insertTerms(terms: List<MedicalTermEntity>): List<Long> {
+            return terms.map { insertTerm(it) }
         }
 
         override fun insertDefinition(definition: MedicalDefinitionEntity): Long {
@@ -137,8 +168,22 @@ class MedicalTranslationTest {
             return definition.defId
         }
 
-        override fun insertDefinitions(definitionsList: List<MedicalDefinitionEntity>): List<Long> {
-            return definitionsList.map { insertDefinition(it) }
+        override fun insertDefinitions(definitions: List<MedicalDefinitionEntity>): List<Long> {
+            return definitions.map { insertDefinition(it) }
+        }
+
+        override fun clearConcepts() {
+            concepts.clear()
+            terms.clear()
+            definitions.clear()
+        }
+
+        override fun clearTerms() {
+            terms.clear()
+        }
+
+        override fun clearDefinitions() {
+            definitions.clear()
         }
 
         override fun getConceptCount(): Int = concepts.size
@@ -294,5 +339,106 @@ class MedicalTranslationTest {
             assertEquals("GENERAL_ACADEMIC_VOCAB", match.sourceLexicon)
             assertEquals("يرمّم / يُصلح / ترميم", match.targetArabicText)
         }
+    }
+
+    @Test
+    fun testClinicalTranslatesToSaririNotCoronaDentis() = runBlocking {
+        val result = repository.translate("clinical")
+        assertTrue("Expected LexicalMatch for 'clinical' but got: $result", result is TranslationResult.LexicalMatch)
+        val match = result as TranslationResult.LexicalMatch
+        assertEquals("سريري / إكلينيكي", match.targetArabicText)
+        assertNotEquals("تاج السن", match.targetArabicText)
+        assertNotEquals("Corona dentis", match.latinName)
+        assertEquals(MedicalDomain.GENERAL_CLINICAL, match.domain)
+    }
+
+    @Test
+    fun testClinicalCrownTranslatesToAltajAlSariri() = runBlocking {
+        val result = repository.translate("clinical crown")
+        assertTrue("Expected LexicalMatch for 'clinical crown' but got: $result", result is TranslationResult.LexicalMatch)
+        val match = result as TranslationResult.LexicalMatch
+        assertEquals("التاج السريري", match.targetArabicText)
+        assertEquals("Corona clinica", match.latinName)
+        assertEquals(MedicalDomain.ANATOMY, match.domain)
+    }
+
+    @Test
+    fun testCrownTranslatesToAnatomicalCrownNotClinicalCrown() = runBlocking {
+        val result = repository.translate("crown")
+        assertTrue("Expected LexicalMatch for 'crown' but got: $result", result is TranslationResult.LexicalMatch)
+        val match = result as TranslationResult.LexicalMatch
+        assertTrue(match.targetArabicText.contains("تاج السن"))
+        assertEquals("Corona dentis", match.latinName)
+        assertEquals(MedicalDomain.ANATOMY, match.domain)
+        assertNotEquals("التاج السريري", match.targetArabicText)
+        assertNotEquals("Corona clinica", match.latinName)
+    }
+
+    @Test
+    fun testClinicalExaminationAndSignificanceMatch() = runBlocking {
+        val examResult = repository.translate("clinical examination")
+        assertTrue(examResult is TranslationResult.LexicalMatch)
+        val examMatch = examResult as TranslationResult.LexicalMatch
+        assertEquals("فحص سريري / فحص إكلينيكي", examMatch.targetArabicText)
+        assertEquals(MedicalDomain.GENERAL_CLINICAL, examMatch.domain)
+
+        val sigResult = repository.translate("clinical significance")
+        assertTrue(sigResult is TranslationResult.LexicalMatch)
+        val sigMatch = sigResult as TranslationResult.LexicalMatch
+        assertEquals("أهمية سريرية / دلالة سريرية", sigMatch.targetArabicText)
+        assertEquals(MedicalDomain.GENERAL_CLINICAL, sigMatch.domain)
+    }
+
+    @Test
+    fun testAuditedDentalHomonymsDisambiguation() = runBlocking {
+        // 1. Margin vs Gingival margin
+        val marginResult = repository.translate("margin")
+        assertTrue(marginResult is TranslationResult.LexicalMatch)
+        val marginMatch = marginResult as TranslationResult.LexicalMatch
+        assertEquals("حافة / هامش", marginMatch.targetArabicText)
+        assertEquals(MedicalDomain.GENERAL_CLINICAL, marginMatch.domain)
+
+        val gingivalMarginResult = repository.translate("gingival margin")
+        assertTrue(gingivalMarginResult is TranslationResult.LexicalMatch)
+        val gingivalMarginMatch = gingivalMarginResult as TranslationResult.LexicalMatch
+        assertEquals("الحافة اللثوية", gingivalMarginMatch.targetArabicText)
+        assertEquals(MedicalDomain.ANATOMY, gingivalMarginMatch.domain)
+
+        // 2. Cervical
+        val cervicalResult = repository.translate("cervical")
+        assertTrue(cervicalResult is TranslationResult.LexicalMatch)
+        val cervicalMatch = cervicalResult as TranslationResult.LexicalMatch
+        assertEquals("عنقي", cervicalMatch.targetArabicText)
+        assertEquals(MedicalDomain.ANATOMY, cervicalMatch.domain)
+
+        // 3. Cusp
+        val cuspResult = repository.translate("cusp")
+        assertTrue(cuspResult is TranslationResult.LexicalMatch)
+        val cuspMatch = cuspResult as TranslationResult.LexicalMatch
+        assertEquals("شرفة السن / حدبة السن", cuspMatch.targetArabicText)
+        assertEquals("Cuspis dentis", cuspMatch.latinName)
+        assertEquals(MedicalDomain.ANATOMY, cuspMatch.domain)
+
+        // 4. Root
+        val rootResult = repository.translate("root")
+        assertTrue(rootResult is TranslationResult.LexicalMatch)
+        val rootMatch = rootResult as TranslationResult.LexicalMatch
+        assertTrue(rootMatch.targetArabicText.contains("جذر السن"))
+        assertEquals("Radix dentis", rootMatch.latinName)
+        assertEquals(MedicalDomain.ANATOMY, rootMatch.domain)
+
+        // 5. Restoration
+        val restoResult = repository.translate("restoration")
+        assertTrue(restoResult is TranslationResult.LexicalMatch)
+        val restoMatch = restoResult as TranslationResult.LexicalMatch
+        assertEquals("حشوة / ترميم سني", restoMatch.targetArabicText)
+        assertEquals(MedicalDomain.PROCEDURE, restoMatch.domain)
+
+        // 6. Preparation
+        val prepResult = repository.translate("preparation")
+        assertTrue(prepResult is TranslationResult.LexicalMatch)
+        val prepMatch = prepResult as TranslationResult.LexicalMatch
+        assertEquals("تحضير السن / تحضير الحفرة", prepMatch.targetArabicText)
+        assertEquals(MedicalDomain.PROCEDURE, prepMatch.domain)
     }
 }

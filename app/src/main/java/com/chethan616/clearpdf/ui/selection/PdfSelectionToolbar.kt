@@ -45,6 +45,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.FormatColorReset
@@ -119,7 +120,8 @@ class PdfSelectionActions(
     val onRemoveHighlight: () -> Unit,
     val onSearch: () -> Unit,
     val onProcessText: (ComponentName) -> Unit,
-    val onMedicalTranslate: (() -> Unit)? = null
+    val onMedicalTranslate: (() -> Unit)? = null,
+    val onAddNote: (() -> Unit)? = null
 )
 
 /** Highlight palette: classic marker yellow first, then the design system's accents. */
@@ -271,15 +273,18 @@ fun PdfSelectionToolbar(
 
         val items = buildList {
             add(ToolbarItem("copy", copyL, Icons.Rounded.ContentCopy, onClick = act(actions.onCopy)))
-            actions.onMedicalTranslate?.let { onMedTr ->
-                add(ToolbarItem("med_tr", stringResource(R.string.selection_medical_translate), Icons.Rounded.Translate, onClick = act(onMedTr)))
-            }
-            add(ToolbarItem("all", selectAllL, Icons.Rounded.SelectAll, onClick = act(actions.onSelectAll)))
             add(ToolbarItem(
                 "hl", highlightL, Icons.Rounded.Highlight, badge = highlightColor,
                 onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); go(ToolbarPage.Colors) },
                 onClick = act { actions.onHighlight(highlightColor.toArgbLong()) }
             ))
+            actions.onMedicalTranslate?.let { onMedTr ->
+                add(ToolbarItem("med_tr", "Translate", Icons.Rounded.Translate, onClick = act(onMedTr)))
+            }
+            actions.onAddNote?.let { onNote ->
+                add(ToolbarItem("note", "Note", Icons.AutoMirrored.Rounded.NoteAdd, onClick = act(onNote)))
+            }
+            add(ToolbarItem("all", selectAllL, Icons.Rounded.SelectAll, onClick = act(actions.onSelectAll)))
             if (shown && hasHighlightOverlap()) add(ToolbarItem("rm", removeL, Icons.Rounded.FormatColorReset, tint = LiquidGlassColors.Red, onClick = act(actions.onRemoveHighlight)))
             add(ToolbarItem("ul", underlineL, Icons.Rounded.FormatUnderlined, onClick = act(actions.onUnderline)))
             add(ToolbarItem("st", strikeL, Icons.Rounded.StrikethroughS, onClick = act(actions.onStrike)))

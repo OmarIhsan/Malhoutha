@@ -195,6 +195,29 @@ object AppSettingsManager {
     fun clearToolbarOrientation(context: Context) {
         prefs(context).edit().remove(KEY_TOOLBAR_ORIENTATION).apply()
     }
+
+    private const val KEY_STYLUS_HANDEDNESS = "stylus_handedness"
+
+    fun getStylusHandedness(context: Context): StylusHandedness {
+        val raw = prefs(context).getString(KEY_STYLUS_HANDEDNESS, null) ?: return StylusHandedness.RightHanded
+        return runCatching { StylusHandedness.valueOf(raw) }.getOrDefault(StylusHandedness.RightHanded)
+    }
+
+    fun setStylusHandedness(context: Context, handedness: StylusHandedness) {
+        prefs(context).edit().putString(KEY_STYLUS_HANDEDNESS, handedness.name).apply()
+    }
+}
+
+/**
+ * Ergonomic Handedness setting for stylus writing:
+ * - RightHanded: Writer rests palm on the right; inking tool dock placed on Left Margin.
+ * - LeftHanded: Writer rests palm on the left; inking tool dock placed on Right Margin.
+ */
+enum class StylusHandedness {
+    RightHanded,
+    LeftHanded;
+
+    fun toggle(): StylusHandedness = if (this == RightHanded) LeftHanded else RightHanded
 }
 
 /**

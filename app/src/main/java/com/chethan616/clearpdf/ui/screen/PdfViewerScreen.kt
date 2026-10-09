@@ -2,6 +2,7 @@ package com.chethan616.clearpdf.ui.screen
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.RectF
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.derivedStateOf
 import android.graphics.Bitmap
@@ -13,6 +14,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,6 +25,16 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chethan616.clearpdf.medical.viewmodel.MedicalLexiconSearchViewModel
+import com.chethan616.clearpdf.medical.viewmodel.MedicalTranslationViewModel
+import com.chethan616.clearpdf.medical.viewmodel.SelectionOverlayState
+import com.chethan616.clearpdf.medical.viewmodel.toRectF
+import com.chethan616.clearpdf.medical.ui.MedicalLexiconDrawer
 import com.malhoutha.ui.LocalDevicePosture
 import com.malhoutha.ui.DevicePosture
 import com.chethan616.clearpdf.data.repository.ToolbarOrientation
@@ -54,6 +66,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
@@ -135,6 +149,14 @@ import com.chethan616.clearpdf.medical.interop.MedicalStickyCardMapper
 import com.chethan616.clearpdf.medical.repository.MedicalTranslationRepository
 import com.chethan616.clearpdf.medical.ui.MedicalTooltipUiState
 import com.chethan616.clearpdf.medical.ui.MedicalTranslationTooltip
+import com.chethan616.clearpdf.medical.ui.MedicalDetailedTranslationModal
+import com.chethan616.clearpdf.medical.engine.ModelWeightManager
+import com.chethan616.clearpdf.medical.repository.VocabularyDeckRepository
+import com.chethan616.clearpdf.medical.audio.MedicalPronunciationEngine
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.widget.Toast
 import com.chethan616.clearpdf.data.repository.AppSettingsManager
 import com.chethan616.clearpdf.ui.components.UnsavedChangesDialog
 import com.chethan616.clearpdf.ui.components.DecryptingAnimation
@@ -206,6 +228,36 @@ fun PdfViewerScreen(
     val activity       = context as? Activity
     val view           = LocalView.current
     val scope          = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val pronunciationEngine = remember { MedicalPronunciationEngine(context) }
+    val playingAudioText by pronunciationEngine.currentlyPlayingText.collectAsState()
+
+    DisposableEffect(pronunciationEngine) {
+        onDispose {
+            pronunciationEngine.shutdown()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, pronunciationEngine) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                pronunciationEngine.stop()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val lexiconSearchViewModel: MedicalLexiconSearchViewModel = viewModel(
+        factory = MedicalLexiconSearchViewModel.Factory(
+            translationRepository = MedicalTranslationRepository.getInstance(context),
+            deckRepository = VocabularyDeckRepository.getInstance(context)
+        )
+    )
+    val isLexiconDrawerOpen by lexiconSearchViewModel.isOpen.collectAsState()
 
     // ── Local UI state ─────────────────────────────────────────────────────
     var controlsVisible     by rememberSaveable { mutableStateOf(true) }
@@ -270,16 +322,14 @@ fun PdfViewerScreen(
     var scale   by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(scale) {
-        if (scale > 1.05f) { showZoomHud = true; delay(900); showZoomHud = false }
-        else showZoomHud = false
-    }
-
     // ── Page annotation state ──────────────────────────────────────────────
     val annotationsByPage = remember { mutableStateMapOf<Int, MutableList<PdfMarkup>>() }
     val stickyNotesByPage = remember { mutableStateMapOf<Int, androidx.compose.runtime.snapshots.SnapshotStateList<StickyCardAnnotation>>() }
     var selectedStickyNoteId by remember { mutableStateOf<String?>(null) }
-    var medicalTooltipState by remember { mutableStateOf(MedicalTooltipUiState()) }
+    val medicalTranslationViewModel = remember { MedicalTranslationViewModel.create(context) }
+    val medicalTooltipState by medicalTranslationViewModel.uiState.collectAsState()
+    val quickTranslationState by medicalTranslationViewModel.quickTranslationState.collectAsState()
+    val detailedTranslationState by medicalTranslationViewModel.detailedTranslationState.collectAsState()
     val pageCanvasSizes   = remember { mutableStateMapOf<Int, Size>() }
     val pageBitmapSizes   = remember { mutableStateMapOf<Int, Size>() }
 
@@ -335,6 +385,77 @@ fun PdfViewerScreen(
     }
     var copiedTick by remember { mutableIntStateOf(0) }
     val haptics = LocalHapticFeedback.current
+
+    // ── Medical Tooltip Gestural & Life-Cycle Dismissal ────────────────────
+    val dismissMedicalTooltip: () -> Unit = {
+        pronunciationEngine.stop()
+        medicalTranslationViewModel.dismiss()
+        medicalTranslationViewModel.dismissDetailedTranslation()
+    }
+    fun dismissTooltip() = dismissMedicalTooltip()
+
+    LaunchedEffect(scale, offsetX) {
+        if (scale > 1.05f) { showZoomHud = true; delay(900); showZoomHud = false }
+        else showZoomHud = false
+        if (scale > 1.01f || offsetX != 0f) {
+            dismissMedicalTooltip()
+        }
+    }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            pronunciationEngine.stop()
+            dismissMedicalTooltip()
+        }
+    }
+
+    LaunchedEffect(listState.firstVisibleItemIndex) {
+        pronunciationEngine.stop()
+    }
+
+    LaunchedEffect(activeTool, activeShapeMode) {
+        if (activeTool != PdfEditTool.None) {
+            dismissMedicalTooltip()
+            if (textSelection.hasSelection) textSelection.clear()
+        }
+    }
+
+    // ── Intentional Text Selection Action Strip Coordinator ──────────────────
+    LaunchedEffect(textSelection.hasSelection, textSelection.gestureActive, textSelection.start, textSelection.end) {
+        if (!textSelection.hasSelection) {
+            medicalTranslationViewModel.onTextSelectionChanged("", null)
+            medicalTranslationViewModel.dismiss()
+            return@LaunchedEffect
+        }
+        if (textSelection.gestureActive) {
+            // Students dragging selection handles across multiple words or lines
+            // will no longer experience premature translation popups or UI flicker.
+            return@LaunchedEffect
+        }
+        val text = textSelection.selectedText().trim()
+        if (text.isBlank()) {
+            medicalTranslationViewModel.onTextSelectionChanged("", null)
+            medicalTranslationViewModel.dismiss()
+            return@LaunchedEffect
+        }
+        val activePage = textSelection.start?.page ?: listState.firstVisibleItemIndex
+        val rects = textSelection.selectionScreenRects()
+        val union = rects.takeIf { it.isNotEmpty() }?.reduce { a, b ->
+            Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
+        } ?: Rect.Zero
+        val normBounds = textSelection.selectionNormalizedRect(activePage) ?: Rect.Zero
+
+        // Trigger Step 2 background auto quick lookup (debounced 50-75ms, 1-4 tokens)
+        medicalTranslationViewModel.onTextSelectionChanged(text, union.toRectF())
+
+        medicalTranslationViewModel.showActionStrip(
+            selectedText = text,
+            boundsInWindow = union,
+            boundsInPageNorm = normBounds,
+            pageIndex = activePage
+        )
+    }
+
 
     // iOS-style momentum for the continuous page scroll: a lower-friction exponential decay
     // glides longer and settles smoothly (vs the stiffer platform spline), so even 2–3 page
@@ -392,6 +513,23 @@ fun PdfViewerScreen(
     fun recordStickyNoteAdded(page: Int, note: StickyCardAnnotation) {
         undoStack.add(ViewerEditHistory.StickyNote(page, note))
         redoStack.clear()
+    }
+
+    fun startSafely(intent: Intent) {
+        runCatching {
+            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+
+    fun applyToSelection(block: (page: Int, marks: MutableList<PdfMarkup>, range: OcrTextRange) -> Boolean) {
+        textSelection.rangesByPage().forEach { (page, ranges) ->
+            val marks = getPageMarks(page)
+            var changed = false
+            ranges.forEach { r -> if (block(page, marks, r)) changed = true }
+            if (changed) recordEdit(page)
+        }
+        lastInteractionAtMs = System.currentTimeMillis()
     }
 
     /**
@@ -557,6 +695,7 @@ fun PdfViewerScreen(
 
     // ── Document lifecycle effects ─────────────────────────────────────────
     LaunchedEffect(state.document?.uri) {
+        pronunciationEngine.stop()
         controlsVisible = true; controlsPinned = false
         lastInteractionAtMs = System.currentTimeMillis()
         scale = 1f; offsetX = 0f
@@ -635,7 +774,7 @@ fun PdfViewerScreen(
         val openingHandedDoc = !askingPassword && state.errorMessage == null && (state.isLoading || pendingLoad)
         if (openingHandedDoc) {
             Box(Modifier.fillMaxSize()) {
-                ViewerLoadingCurtain(isLight = isLight)
+                ViewerLoadingCurtain(isLight = isLight, progressMessage = state.conversionProgressText)
                 // While a password PDF is actually being unlocked, play the padlock "decrypting"
                 // animation over the fill (styled after the onboarding page-5 demos). Plain opening
                 // fills (a normal load) show nothing extra — a lock would be misleading there.
@@ -886,12 +1025,50 @@ fun PdfViewerScreen(
         }
     }
 
+    val dropLexiconMatchToPage: (TranslationResult.LexicalMatch) -> Unit = { match ->
+        val page = currentPageIndex
+        val existingNotes = getPageStickyNotes(page).toList()
+        val newNote = MedicalStickyCardMapper.mapToStickyCard(
+            result = match,
+            pageIndex = page,
+            existingNotes = existingNotes
+        )
+        getPageStickyNotes(page).add(newNote)
+        recordStickyNoteAdded(page, newNote)
+        selectedStickyNoteId = newNote.id
+        controlsVisible = true
+        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+        Toast.makeText(context, "Added note to page ${page + 1}", Toast.LENGTH_SHORT).show()
+    }
+
+    val bookmarkLexiconMatch: (TranslationResult.LexicalMatch) -> Unit = { match ->
+        viewerScope.launch {
+            val deckRepo = VocabularyDeckRepository.getInstance(context)
+            val docName = state.document?.name ?: state.fileName.takeIf { it.isNotBlank() }
+            deckRepo.bookmarkTerm(
+                result = match,
+                documentName = docName,
+                pageIndex = currentPageIndex
+            )
+            Toast.makeText(context, "Saved to Vocabulary Deck", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(if (isLight) Color(0xFF0A0E14).copy(0.85f) else Color(0xFF020305).copy(0.88f))
     ) {
-        val renderWidthPx = with(LocalDensity.current) { maxWidth.roundToPx() }.coerceAtLeast(720)
+        val isTabletLandscape = maxWidth > 840.dp
+        val canvasWidth = if (isTabletLandscape && isLexiconDrawerOpen) maxWidth - 360.dp else maxWidth
+        val animatedCanvasWidth by animateDpAsState(
+            targetValue = canvasWidth,
+            animationSpec = tween(250),
+            label = "canvasWidth"
+        )
+        val renderWidthPx = with(LocalDensity.current) {
+            animatedCanvasWidth.roundToPx().coerceAtLeast(720)
+        }
 
         // Warms the pages just ahead of (and one behind) wherever scrolling currently is, so a page's
         // render has a head start instead of only beginning once it scrolls into view — undebounced
@@ -899,6 +1076,10 @@ fun PdfViewerScreen(
         // already in flight.
         LaunchedEffect(currentPageIndex, renderWidthPx) {
             viewModel.prefetchAround(context, currentPageIndex, renderWidthPx)
+        }
+
+        LaunchedEffect(currentPageIndex) {
+            pronunciationEngine.stop()
         }
 
         var containerHeightPx by remember { mutableStateOf(0) }
@@ -965,6 +1146,7 @@ fun PdfViewerScreen(
         // layerBackdrop + background live INSIDE this Box so the captured layer holds
         // the dark base + PDF pages; the glass chrome samples it (real reflections).
         val handleViewportTransform: (Offset, Offset, Float) -> Unit = { centroid, panChange, zoomChange ->
+            dismissMedicalTooltip()
             val cw = containerWidthPx.toFloat().takeIf { it > 0f } ?: 1000f
             val oldScale = scale
             val newScale = (oldScale * zoomChange).coerceIn(1f, 5f)
@@ -987,12 +1169,18 @@ fun PdfViewerScreen(
         }
 
         Box(
-            Modifier
-                .fillMaxSize()
-                .layerBackdrop(contentBackdrop)
-                .background(if (isLight) Color(0xFF0A0E14).copy(0.85f) else Color(0xFF020305).copy(0.88f))
-                .clipToBounds()
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .width(animatedCanvasWidth)
+                .fillMaxHeight()
         ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(contentBackdrop)
+                    .background(if (isLight) Color(0xFF0A0E14).copy(0.85f) else Color(0xFF020305).copy(0.88f))
+                    .clipToBounds()
+            ) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -1004,7 +1192,10 @@ fun PdfViewerScreen(
                         autoScroller = selectionAutoScroller,
                         haptics = haptics,
                         enabled = { activeTool == PdfEditTool.None },
-                        onSelectionStarted = { lastInteractionAtMs = System.currentTimeMillis() }
+                        onSelectionStarted = {
+                            dismissMedicalTooltip()
+                            lastInteractionAtMs = System.currentTimeMillis()
+                        }
                     )
                     .then(
                         if (activeTool != PdfEditTool.None) {
@@ -1044,6 +1235,7 @@ fun PdfViewerScreen(
                     .pointerInput(activeTool) {
                         detectTapGestures(
                             onTap = {
+                                dismissMedicalTooltip()
                                 // Tap outside clears a text selection (and does nothing else), like a
                                 // TextView; otherwise it toggles the reading chrome.
                                 if (textSelection.hasSelection) textSelection.clear()
@@ -1051,6 +1243,7 @@ fun PdfViewerScreen(
                                 lastInteractionAtMs = System.currentTimeMillis()
                             },
                             onDoubleTap = { tap ->
+                                dismissMedicalTooltip()
                                 if (activeTool != PdfEditTool.None) return@detectTapGestures
                                 val cw = size.width.toFloat()
                                 val s0 = scale
@@ -1118,7 +1311,11 @@ fun PdfViewerScreen(
                                 activeImageId      = activeImageId,
                                 pageCanvasSizes    = pageCanvasSizes,
                                 pageBitmapSizes    = pageBitmapSizes,
-                                onInteraction      = { lastInteractionAtMs = System.currentTimeMillis() },
+                                onInteraction      = {
+                                    lastInteractionAtMs = System.currentTimeMillis()
+                                    dismissMedicalTooltip()
+                                },
+                                onDismissTooltip   = dismissMedicalTooltip,
                                 onMarkAdded        = { recordEdit(page) },
                                 onToggleControls   = { controlsVisible = !controlsVisible },
                                 onShowControls     = { controlsVisible = true },
@@ -1181,30 +1378,93 @@ fun PdfViewerScreen(
                                         full.substring(start.coerceAtLeast(0), end.coerceAtMost(full.length)).trim()
                                     }
                                     if (!text.isNullOrBlank()) {
-                                        medicalTooltipState = MedicalTooltipUiState(
-                                            isVisible = true,
-                                            isLoading = true,
-                                            selectedText = text,
-                                            selectionBoundsInPageNorm = normRect,
-                                            pageIndex = page
+                                        val pageText = blocks.joinToString(" ") { it.text }
+                                        val cs = pageCanvasSizes[page] ?: Size(1000f, 1400f)
+                                        val boundsF = RectF(
+                                            normRect.left * cs.width,
+                                            normRect.top * cs.height,
+                                            normRect.right * cs.width,
+                                            normRect.bottom * cs.height
                                         )
-                                        viewerScope.launch {
-                                            try {
-                                                val pageText = blocks.joinToString(" ") { it.text }
-                                                val repository = MedicalTranslationRepository.getInstance(context)
-                                                val result = repository.translate(text, pageText)
-                                                medicalTooltipState = medicalTooltipState.copy(isLoading = false, result = result)
-                                            } catch (e: Exception) {
-                                                medicalTooltipState = medicalTooltipState.copy(isLoading = false, errorMessage = e.localizedMessage)
-                                            }
-                                        }
+                                        medicalTranslationViewModel.openDetailedTranslation(
+                                            text = text,
+                                            bounds = boundsF,
+                                            pageIndex = page,
+                                            surroundingContext = pageText,
+                                            documentName = state.fileName.ifBlank { null }
+                                        )
                                     }
                                 },
                                 textSelection = textSelection,
+                                onExplicitTranslateRequested = { selText, boundsF ->
+                                    val rects = textSelection.selectionScreenRects()
+                                    val screenBounds = rects.takeIf { it.isNotEmpty() }?.reduce { a, b ->
+                                        Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
+                                    }?.toRectF() ?: boundsF
+                                    val pageText = state.ocrBlocksByPage[page]?.joinToString(" ") { it.text }
+                                    medicalTranslationViewModel.openDetailedTranslation(
+                                        text = selText,
+                                        bounds = screenBounds,
+                                        pageIndex = page,
+                                        surroundingContext = pageText,
+                                        documentName = state.fileName.ifBlank { null }
+                                    )
+                                },
+                                quickTranslationState = quickTranslationState,
+                                onPlayAudio = { term -> pronunciationEngine.speakTerm(term) },
+                                onCopySelection = {
+                                    viewerScope.launch {
+                                        val t = textSelection.selectedText().trim()
+                                        if (t.isNotBlank()) {
+                                            clipboard.setText(AnnotatedString(t))
+                                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            copiedTick++
+                                        }
+                                        textSelection.clear()
+                                    }
+                                },
+                                onHighlightSelection = {
+                                    applyToSelection { _, m, r ->
+                                        m.removeAll { it is PdfMarkup.TextBlockHighlightMarkup && it.blockId == r.blockId && it.start >= r.start && it.end <= r.end }
+                                        m.add(PdfMarkup.TextBlockHighlightMarkup(r.blockId, Color(currentColorLong), 0.38f, r.start, r.end))
+                                        true
+                                    }
+                                    textSelection.clear()
+                                },
+                                onAddNoteSelection = {
+                                    val activePage = textSelection.start?.page ?: page
+                                    val norm = textSelection.selectionNormalizedRect(activePage) ?: Rect(0.1f, 0.1f, 0.45f, 0.2f)
+                                    val t = textSelection.selectedText().trim()
+                                    val newNote = StickyCardAnnotation(
+                                        id = java.util.UUID.randomUUID().toString(),
+                                        pageIndex = activePage,
+                                        xNorm = norm.left,
+                                        yNorm = norm.bottom,
+                                        content = t,
+                                        colorHex = com.malhoutha.core.ink.models.StickyCardPalette.YELLOW
+                                    )
+                                    getPageStickyNotes(activePage).add(newNote)
+                                    recordStickyNoteAdded(activePage, newNote)
+                                    selectedStickyNoteId = newNote.id
+                                    textSelection.clear()
+                                },
+                                onShareSelection = {
+                                    viewerScope.launch {
+                                        val t = textSelection.selectedText().trim()
+                                        if (t.isNotBlank()) {
+                                            startSafely(Intent.createChooser(
+                                                Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), null
+                                            ))
+                                        }
+                                        textSelection.clear()
+                                    }
+                                },
+                                isScrolling = listState.isScrollInProgress,
                                 paperConfig = state.paperConfig,
                                 stickyNotes = getPageStickyNotes(page),
                                 selectedStickyNoteId = selectedStickyNoteId,
                                 onSelectStickyNote = { noteId ->
+                                    dismissMedicalTooltip()
                                     selectedStickyNoteId = noteId
                                     if (noteId != null) {
                                         selectedAnnoPage = null
@@ -1234,15 +1494,36 @@ fun PdfViewerScreen(
                                         pageHeightPx = cs.height,
                                         defaultWidthPx = with(density) { 240.dp.toPx() }
                                     )
+                                    val existingNotes = getPageStickyNotes(page).toList()
+                                    val (resolvedX, resolvedY) = MedicalStickyCardMapper.resolveCollisionFreeCoordinates(
+                                        targetXNorm = placement.xNorm,
+                                        desiredYNorm = placement.yNorm,
+                                        cardWidthNorm = placement.widthNorm,
+                                        cardHeightNorm = MedicalStickyCardMapper.DEFAULT_CARD_HEIGHT_NORM,
+                                        existingAnnotations = existingNotes
+                                    )
                                     val newNote = StickyCardAnnotation(
                                         pageIndex = page,
-                                        xNorm = placement.xNorm,
-                                        yNorm = placement.yNorm,
+                                        xNorm = resolvedX,
+                                        yNorm = resolvedY,
                                         widthNorm = placement.widthNorm,
                                         colorHex = StickyCardPalette.YELLOW
                                     )
                                     getPageStickyNotes(page).add(newNote)
                                     recordStickyNoteAdded(page, newNote)
+                                    selectedStickyNoteId = newNote.id
+                                    controlsVisible = true
+                                },
+                                onInsertAsStickyNote = { result ->
+                                    val activePageIndex = page
+                                    val existingNotes = getPageStickyNotes(activePageIndex).toList()
+                                    val newNote = MedicalStickyCardMapper.mapToStickyCard(
+                                        result = result,
+                                        pageIndex = activePageIndex,
+                                        existingNotes = existingNotes
+                                    )
+                                    getPageStickyNotes(activePageIndex).add(newNote)
+                                    recordStickyNoteAdded(activePageIndex, newNote)
                                     selectedStickyNoteId = newNote.id
                                     controlsVisible = true
                                 },
@@ -1272,12 +1553,16 @@ fun PdfViewerScreen(
                         currentColor = currentColor,
                         currentStrokeWidth = currentStrokeWidth,
                         pageScale = 1.0f,
-                        onInteraction = { lastInteractionAtMs = System.currentTimeMillis() },
+                        onInteraction = {
+                            lastInteractionAtMs = System.currentTimeMillis()
+                            dismissMedicalTooltip()
+                        },
                         onStrokeCommitted = { _, _ -> },
                         onTransformGesture = handleViewportTransform
                     )
                 }
             }
+        }
         }
 
         // ── Text-selection handles + magnifier (outside the zoom layer: fixed on-screen size) ──
@@ -1380,6 +1665,20 @@ fun PdfViewerScreen(
                             imageVector = Icons.Rounded.Share,
                             contentDescription = "Share & Export Document",
                             tint = topFg,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    LiquidIconButton(
+                        onClick = {
+                            lexiconSearchViewModel.toggleDrawer()
+                        },
+                        backdrop = contentBackdrop
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.MenuBook,
+                            contentDescription = "Medical Lexicon & Clinical Dictionary",
+                            tint = if (isLexiconDrawerOpen) Color(0xFF007AFF) else topFg,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1622,21 +1921,6 @@ fun PdfViewerScreen(
             }
             return textSelection.selectedText()
         }
-        fun startSafely(intent: Intent) {
-            runCatching {
-                if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            }
-        }
-        fun applyToSelection(block: (page: Int, marks: MutableList<PdfMarkup>, range: OcrTextRange) -> Boolean) {
-            textSelection.rangesByPage().forEach { (page, ranges) ->
-                val marks = getPageMarks(page)
-                var changed = false
-                ranges.forEach { r -> if (block(page, marks, r)) changed = true }
-                if (changed) recordEdit(page)
-            }
-            lastInteractionAtMs = System.currentTimeMillis()
-        }
         val selectionActions = PdfSelectionActions(
             onCopy = {
                 viewerScope.launch {
@@ -1723,39 +2007,43 @@ fun PdfViewerScreen(
                 }
             },
             onMedicalTranslate = {
-                viewerScope.launch {
-                    val t = selectionTextLoaded().trim()
-                    val activePage = textSelection.start?.page ?: currentPageIndex
+                val q = textSelection.selectedText().trim()
+                if (q.isNotBlank()) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    val activePage = textSelection.start?.page ?: listState.firstVisibleItemIndex
+                    val pageText = viewModel.uiState.value.ocrBlocksByPage[activePage]?.joinToString(" ") { it.text }
+                    val docName = state.document?.name ?: state.fileName.ifBlank { null }
                     val rects = textSelection.selectionScreenRects()
                     val union = rects.takeIf { it.isNotEmpty() }?.reduce { a, b ->
                         Rect(minOf(a.left, b.left), minOf(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
                     } ?: Rect.Zero
-                    val normBounds = textSelection.selectionNormalizedRect(activePage) ?: Rect.Zero
-
-                    if (t.isNotBlank()) {
-                        medicalTooltipState = MedicalTooltipUiState(
-                            isVisible = true,
-                            isLoading = true,
-                            selectedText = t,
-                            selectionBoundsInWindow = union,
-                            selectionBoundsInPageNorm = normBounds,
-                            pageIndex = activePage
-                        )
-                        try {
-                            val pageText = viewModel.uiState.value.ocrBlocksByPage[activePage]?.joinToString(" ") { it.text }
-                            val repository = MedicalTranslationRepository.getInstance(context)
-                            val result = repository.translate(t, pageText)
-                            medicalTooltipState = medicalTooltipState.copy(
-                                isLoading = false,
-                                result = result
-                            )
-                        } catch (e: Exception) {
-                            medicalTooltipState = medicalTooltipState.copy(
-                                isLoading = false,
-                                errorMessage = e.localizedMessage ?: "Translation failed"
-                            )
-                        }
-                    }
+                    medicalTranslationViewModel.onExplicitTranslateRequested(
+                        text = q,
+                        bounds = union.toRectF(),
+                        pageIndex = activePage,
+                        surroundingContext = pageText,
+                        documentName = docName
+                    )
+                }
+            },
+            onAddNote = {
+                val q = textSelection.selectedText().trim()
+                if (q.isNotBlank()) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    val activePage = textSelection.start?.page ?: listState.firstVisibleItemIndex
+                    val norm = textSelection.selectionNormalizedRect(activePage) ?: Rect(0.1f, 0.1f, 0.45f, 0.2f)
+                    val newNote = StickyCardAnnotation(
+                        id = java.util.UUID.randomUUID().toString(),
+                        pageIndex = activePage,
+                        xNorm = norm.left,
+                        yNorm = norm.bottom,
+                        content = q,
+                        colorHex = com.malhoutha.core.ink.models.StickyCardPalette.YELLOW
+                    )
+                    getPageStickyNotes(activePage).add(newNote)
+                    recordStickyNoteAdded(activePage, newNote)
+                    selectedStickyNoteId = newNote.id
+                    textSelection.clear()
                 }
             }
         )
@@ -1768,22 +2056,75 @@ fun PdfViewerScreen(
                 }
             }
         }
-        PdfSelectionToolbar(
-            state = textSelection,
-            listState = listState,
-            backdrop = contentBackdrop,
-            actions = selectionActions,
-            highlightColor = currentColor,
-            hasHighlightOverlap = hasHighlightOverlap
-        )
+        if (!medicalTooltipState.isVisible || medicalTooltipState.overlayState is SelectionOverlayState.ActionStripVisible) {
+            PdfSelectionToolbar(
+                state = textSelection,
+                listState = listState,
+                backdrop = contentBackdrop,
+                actions = selectionActions,
+                highlightColor = currentColor,
+                hasHighlightOverlap = hasHighlightOverlap
+            )
+        }
+
+        // ── Unified Detailed Translation Sheet / Anchored Modal (Step 4) ──
+        if (detailedTranslationState.isVisible) {
+            MedicalDetailedTranslationModal(
+                state = detailedTranslationState,
+                isTablet = isTabletLandscape,
+                viewportWidthPx = containerWidthPx.toFloat().takeIf { it > 0f } ?: with(density) { maxWidth.toPx() },
+                viewportHeightPx = with(density) { maxHeight.toPx() },
+                onDismiss = {
+                    pronunciationEngine.stop()
+                    medicalTranslationViewModel.dismissDetailedTranslation()
+                },
+                onPlayAudio = {
+                    pronunciationEngine.speakTerm(detailedTranslationState.sourceText)
+                },
+                onAddStickyNote = {
+                    val result = detailedTranslationState.result ?: return@MedicalDetailedTranslationModal
+                    val page = detailedTranslationState.pageIndex
+                    val existingNotes = getPageStickyNotes(page).toList()
+                    val normBounds = textSelection.selectionNormalizedRect(page) ?: Rect.Zero
+                    val newNote = MedicalStickyCardMapper.mapToStickyCard(
+                        result = result,
+                        pageIndex = page,
+                        selectionBoundsPageNorm = normBounds,
+                        existingNotes = existingNotes
+                    )
+                    getPageStickyNotes(page).add(newNote)
+                    recordStickyNoteAdded(page, newNote)
+                    selectedStickyNoteId = newNote.id
+                    controlsVisible = true
+                    pronunciationEngine.stop()
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    medicalTranslationViewModel.dismissDetailedTranslation()
+                    textSelection.clear()
+                },
+                onSaveToDeck = {
+                    val result = detailedTranslationState.result ?: return@MedicalDetailedTranslationModal
+                    val docName = state.document?.name ?: state.fileName.takeIf { it.isNotBlank() }
+                    medicalTranslationViewModel.toggleBookmark(result, docName)
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                },
+                onCopyText = {
+                    val result = detailedTranslationState.result ?: return@MedicalDetailedTranslationModal
+                    val textToCopy = "${detailedTranslationState.sourceText} - ${result.targetArabicText}"
+                    clipboard.setText(AnnotatedString(textToCopy))
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    copiedTick++
+                }
+            )
+        }
 
         // ── Medical Translation Luminous Hover Card ──
-        if (medicalTooltipState.isVisible) {
+        if (!detailedTranslationState.isVisible && medicalTooltipState.isVisible && medicalTooltipState.overlayState !is SelectionOverlayState.ActionStripVisible) {
             MedicalTranslationTooltip(
                 state = medicalTooltipState,
                 backdrop = contentBackdrop,
                 onDismiss = {
-                    medicalTooltipState = medicalTooltipState.copy(isVisible = false)
+                    pronunciationEngine.stop()
+                    medicalTranslationViewModel.dismiss()
                 },
                 onCopyTranslation = { textToCopy ->
                     clipboard.setText(AnnotatedString(textToCopy))
@@ -1803,9 +2144,71 @@ fun PdfViewerScreen(
                     recordStickyNoteAdded(page, newNote)
                     selectedStickyNoteId = newNote.id
                     controlsVisible = true
-                    medicalTooltipState = medicalTooltipState.copy(isVisible = false)
+                    pronunciationEngine.stop()
+                    medicalTranslationViewModel.dismiss()
                     textSelection.clear()
-                }
+                },
+                onDownloadModel = {
+                    ModelWeightManager.getInstance(context).startDownload()
+                },
+                onBookmarkCard = { result ->
+                    val docName = state.document?.name ?: state.fileName.takeIf { it.isNotBlank() }
+                    medicalTranslationViewModel.toggleBookmark(result, docName)
+                },
+                onSpeakTerm = { text, isLatin ->
+                    pronunciationEngine.speakTerm(text, isLatin = isLatin)
+                },
+                onExpandDetails = medicalTranslationViewModel::expandDetails,
+                onCollapseDetails = medicalTranslationViewModel::collapseDetails,
+                currentlyPlayingAudioText = playingAudioText,
+                onTranslateAction = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    val activePage = textSelection.start?.page ?: medicalTooltipState.pageIndex
+                    val pageText = viewModel.uiState.value.ocrBlocksByPage[activePage]?.joinToString(" ") { it.text }
+                    val docName = state.document?.name ?: state.fileName.ifBlank { null }
+                    medicalTranslationViewModel.translateSelection(
+                        selectedText = medicalTooltipState.selectedText.ifBlank { textSelection.selectedText().trim() },
+                        boundsInWindow = medicalTooltipState.selectionBoundsInWindow,
+                        boundsInPageNorm = medicalTooltipState.selectionBoundsInPageNorm,
+                        pageIndex = activePage,
+                        surroundingContext = pageText,
+                        documentName = docName
+                    )
+                },
+                onHighlightAction = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    applyToSelection { _, m, r ->
+                        if (m.any { it is PdfMarkup.TextBlockHighlightMarkup && it.blockId == r.blockId && it.start == r.start && it.end == r.end }) false
+                        else m.add(PdfMarkup.TextBlockHighlightMarkup(r.blockId, Color(currentColorLong), 1f, r.start, r.end))
+                    }
+                    medicalTranslationViewModel.dismiss()
+                    textSelection.clear()
+                },
+                onCopySelectedText = {
+                    val textToCopy = medicalTooltipState.selectedText.ifBlank { textSelection.selectedText().trim() }
+                    clipboard.setText(AnnotatedString(textToCopy))
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    copiedTick++
+                },
+                onAddNoteAction = {
+                    val page = medicalTooltipState.pageIndex
+                    val existingNotes = getPageStickyNotes(page).toList()
+                    val res = medicalTooltipState.result ?: TranslationResult.NotFound(medicalTooltipState.selectedText, "")
+                    val newNote = MedicalStickyCardMapper.mapToStickyCard(
+                        result = res,
+                        pageIndex = page,
+                        selectionBoundsPageNorm = medicalTooltipState.selectionBoundsInPageNorm,
+                        existingNotes = existingNotes
+                    )
+                    getPageStickyNotes(page).add(newNote)
+                    recordStickyNoteAdded(page, newNote)
+                    selectedStickyNoteId = newNote.id
+                    controlsVisible = true
+                    pronunciationEngine.stop()
+                    medicalTranslationViewModel.dismiss()
+                    textSelection.clear()
+                },
+                highlightColor = currentColor
             )
         }
         PdfCopiedToast(
@@ -2057,7 +2460,58 @@ fun PdfViewerScreen(
             exit     = fadeOut(tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)),
             modifier = Modifier.fillMaxSize()
         ) {
-            ViewerLoadingCurtain(isLight = isLight)
+            ViewerLoadingCurtain(isLight = isLight, progressMessage = state.conversionProgressText)
+        }
+
+        if (isTabletLandscape) {
+            MedicalLexiconDrawer(
+                viewModel = lexiconSearchViewModel,
+                backdrop = contentBackdrop,
+                onClose = { lexiconSearchViewModel.closeDrawer() },
+                onDropToPage = { match -> dropLexiconMatchToPage(match) },
+                onBookmarkTerm = { match -> bookmarkLexiconMatch(match) },
+                onSpeakTerm = { text, isLatin -> pronunciationEngine.speakTerm(text, isLatin = isLatin) },
+                currentlyPlayingAudioText = playingAudioText,
+                isDualPane = true,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(360.dp)
+                    .fillMaxHeight()
+            )
+        }
+
+        if (!isTabletLandscape) {
+            AnimatedVisibility(
+                visible = isLexiconDrawerOpen,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(180))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { lexiconSearchViewModel.closeDrawer() }
+                )
+            }
+
+            val drawerWidth = (maxWidth * 0.85f).coerceAtMost(360.dp)
+            MedicalLexiconDrawer(
+                viewModel = lexiconSearchViewModel,
+                backdrop = contentBackdrop,
+                onClose = { lexiconSearchViewModel.closeDrawer() },
+                onDropToPage = { match -> dropLexiconMatchToPage(match) },
+                onBookmarkTerm = { match -> bookmarkLexiconMatch(match) },
+                onSpeakTerm = { text, isLatin -> pronunciationEngine.speakTerm(text, isLatin = isLatin) },
+                currentlyPlayingAudioText = playingAudioText,
+                isDualPane = false,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(drawerWidth)
+                    .fillMaxHeight()
+            )
         }
     }
 
@@ -2100,9 +2554,33 @@ fun PdfViewerScreen(
  * "opening" animation — deliberately just a dissolve.
  */
 @Composable
-private fun ViewerLoadingCurtain(isLight: Boolean) {
+private fun ViewerLoadingCurtain(isLight: Boolean, progressMessage: String? = null) {
     val bg = if (isLight) Color(0xFF0A0E14) else Color(0xFF05070B)
-    Box(Modifier.fillMaxSize().background(bg))
+    Box(Modifier.fillMaxSize().background(bg), contentAlignment = Alignment.Center) {
+        if (!progressMessage.isNullOrBlank()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .background(Color(0xEE1E2430), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 22.dp, vertical = 14.dp)
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = Color(0xFF64B5F6),
+                    strokeWidth = 2.dp
+                )
+                BasicText(
+                    text = progressMessage,
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+            }
+        }
+    }
 }
 
 /**
